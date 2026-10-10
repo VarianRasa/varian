@@ -5244,7 +5244,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
           'The selected GLB file could not be read.',
         );
       }
-      return _createModel3DNode(
+      return await _createModel3DNode(
         bytes,
         fileName: picked.name,
         worldPosition: worldPosition,

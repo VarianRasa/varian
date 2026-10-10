@@ -97,7 +97,7 @@ class IoDocumentConversionService implements DocumentConversionService {
         );
       }
       final bytes = Uint8List.fromList(await pdf.readAsBytes());
-      return cache.store(
+      return await cache.store(
         key: key,
         pdfBytes: bytes,
         extension: source.extension,

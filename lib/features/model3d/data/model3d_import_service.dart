@@ -169,7 +169,7 @@ class Model3DImportService {
         );
       }
       validateGlbBytes(bytes);
-      return _importBytes(
+      return await _importBytes(
         bytes,
         fileName: fileName,
         projectId: projectId,

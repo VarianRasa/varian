@@ -2871,7 +2871,7 @@ class SupabaseSyncService {
           res['document_data'],
           projectId,
         );
-        return _artifactHydrator.hydrate(
+        return await _artifactHydrator.hydrate(
           document,
           projectId: projectId,
           accountId: currentUserId,
@@ -2963,7 +2963,7 @@ class SupabaseSyncService {
       for (final operation in operations) {
         session.applyRemote(operation);
       }
-      return _artifactHydrator.hydrate(
+      return await _artifactHydrator.hydrate(
         session.document,
         projectId: projectId,
         accountId: currentUserId,

@@ -858,10 +858,12 @@ class _ParsedNode {
   final int nextIndex;
   final MermaidDiagnostic? diagnostic;
 
-  const _ParsedNode({this.node, this.nextIndex = 0, this.diagnostic});
+  const _ParsedNode({this.node, this.nextIndex = 0}) : diagnostic = null;
 
-  _ParsedNode.failure(MermaidDiagnostic diagnostic)
-    : this(diagnostic: diagnostic);
+  _ParsedNode.failure(MermaidDiagnostic failureDiagnostic)
+    : node = null,
+      nextIndex = 0,
+      diagnostic = failureDiagnostic;
 }
 
 class _ParsedLine {
@@ -869,10 +871,12 @@ class _ParsedLine {
   final List<_FlowEdge> edges;
   final MermaidDiagnostic? diagnostic;
 
-  const _ParsedLine({this.node, this.edges = const [], this.diagnostic});
+  const _ParsedLine({this.node, this.edges = const []}) : diagnostic = null;
 
-  _ParsedLine.failure(MermaidDiagnostic diagnostic)
-    : this(diagnostic: diagnostic);
+  _ParsedLine.failure(MermaidDiagnostic failureDiagnostic)
+    : node = null,
+      edges = const [],
+      diagnostic = failureDiagnostic;
 }
 
 class _Position {

@@ -187,7 +187,7 @@ final class SettingsRepository {
     if (raw == null || raw.trim().isEmpty) return current;
     try {
       final legacyValue = codec.decode(jsonDecode(raw));
-      return write<T>(
+      return await write<T>(
         envelope: current.copyWith(value: legacyValue),
         codec: codec,
         expectedRevision: current.revision,

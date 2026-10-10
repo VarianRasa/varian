@@ -1064,7 +1064,7 @@ class AIService {
         case AICapability.detailEnhancement:
           return _failed(job, _unsupportedOperationMessage(job.capability)!);
         case AICapability.imageToVideo:
-          return _handleRemoteVideo(job);
+          return await _handleRemoteVideo(job);
         case AICapability.videoFromImage:
         case AICapability.firstLastFrame:
         case AICapability.cameraMotion:
@@ -2546,7 +2546,7 @@ class AIService {
     try {
       final mask = AIMaskDocument.fromJson(payload);
       if (mask.isEmpty) return null;
-      return AIMaskRenderer.render(mask);
+      return await AIMaskRenderer.render(mask);
     } catch (error) {
       throw _AIRequestException('The structured AI mask is invalid: $error');
     }

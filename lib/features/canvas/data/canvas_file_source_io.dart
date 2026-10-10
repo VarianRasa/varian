@@ -11,7 +11,10 @@ Future<Uint8List?> readCanvasFileBytes(
   final file = File(path);
   if (!await file.exists()) return null;
   try {
-    return _readCanvasByteStreamBytes(file.openRead(), maxBytes: maxBytes);
+    return await _readCanvasByteStreamBytes(
+      file.openRead(),
+      maxBytes: maxBytes,
+    );
   } catch (_) {
     return null;
   }

@@ -1538,7 +1538,7 @@ class AICanvasActionsNotifier extends StateNotifier<AICanvasActionState> {
   }) async {
     try {
       final action = AICanvasAction.fromAssistant(proposal);
-      return execute(
+      return await execute(
         action,
         projectId: projectId,
         confirmed: confirmed,

@@ -101,7 +101,7 @@ class AICanvasTransactionNotifier
   ) async {
     try {
       final action = AICanvasAction.fromAssistant(proposal);
-      return previewAction(action);
+      return await previewAction(action);
     } on AICanvasActionValidationException {
       return null;
     }

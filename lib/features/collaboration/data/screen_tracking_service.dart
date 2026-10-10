@@ -20,7 +20,7 @@ Future<MediaStream> _captureDisplayStream() async {
       );
       final source = sources.firstOrNull;
       if (source != null) {
-        return navigator.mediaDevices.getDisplayMedia({
+        return await navigator.mediaDevices.getDisplayMedia({
           'video': {
             'deviceId': {'exact': source.id},
           },
