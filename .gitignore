@@ -1,0 +1,99 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# Local test captures, diagnostics, and generated previews
+/*.log
+/*.txt
+/*.png
+/*.mp4
+/response-probe.json
+/.playwright-cli/
+/.superpowers/
+/output/
+/android/*.log
+/android/pub-outdated.json
+/supabase/.temp/
+/windows/flutter/ephemeral/
+/windows/libreoffice/runtime/
+/ios/Flutter/ephemeral/
+/macos/Flutter/ephemeral/
+
+# Local isolated Flutter build outputs
+/varian-capture-build-*/
+/varian-capture-isolated-build/
+/varian-isolated-build/
+/.env.cloudflare
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Local generated state and verification outputs
+/.artifacts/
+/.firebase/
+/.hermes/
+/.wrangler/
+/ai_3d_jobs/
+/%SystemDrive%/
+/$CLAUDE_JOB_DIR.tmp/
+/NUL
+/route-test-build-*/
+/varian-adopt-*/
+/varian-adoption-*/
+/varian-migration-verify*/
+/.claude/
+/.codex*
+/*.patch
+
+# Private local handoffs and deployment-specific configuration
+/AI_AGENT_MILESTONE_BREAKDOWN.md
+/JCODE_CONTINUATION_PROMPT.md
+/docs/milestone-progress-breakdown-2026-09-22.md
+/.firebaserc
+/firebase.json
+
+/tool/mermaid_native_probe.dart
+/tool/mermaid_theme_probe.dart

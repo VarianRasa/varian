@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 1,
+  "checkedAt": "2026-09-11",
+  "providers": {
+    "triposr": {
+      "repository": "https://github.com/VAST-AI-Research/TripoSR.git",
+      "revision": "107cefdc244c39106fa830359024f6a2f1c78871"
+    },
+    "trellis2": {
+      "repository": "https://github.com/microsoft/TRELLIS.2.git",
+      "revision": "75fbf0183001ed9876c8dbb35de6b68552ee08bd",
+      "model": {
+        "repository": "https://huggingface.co/microsoft/TRELLIS.2-4B",
+        "revision": "af44b45f2e35a493886929c6d786e563ec68364d"
+      },
+      "runtime": {
+        "os": "linux",
+        "python": "3.10",
+        "cuda": "12.4",
+        "torch": "2.6.0",
+        "torchvision": "0.21.0",
+        "flashAttention": "2.7.3"
+      },
+      "dependencies": {
+        "nvdiffrast": {
+          "repository": "https://github.com/NVlabs/nvdiffrast.git",
+          "revision": "253ac4fcea7de5f396371124af597e6cc957bfae",
+          "tag": "v0.4.0"
+        },
+        "nvdiffrec": {
+          "repository": "https://github.com/JeffreyXiang/nvdiffrec.git",
+          "revision": "b296927cc7fd01c2ac1087c8065c4d7248f72da4",
+          "branch": "renderutils"
+        },
+        "cumesh": {
+          "repository": "https://github.com/JeffreyXiang/CuMesh.git",
+          "revision": "12289e1062f0603f2f0d0771b02e1395d247f26f"
+        },
+        "flexgemm": {
+          "repository": "https://github.com/JeffreyXiang/FlexGEMM.git",
+          "revision": "6dd94a859c26ee8246888502eada3dd8ad85532e"
+        },
+        "utils3d": {
+          "repository": "https://github.com/EasternJournalist/utils3d.git",
+          "revision": "ca3e9ac015ab3473a37ea60f2f55063696638416"
+        },
+        "eigen": {
+          "repository": "https://gitlab.com/libeigen/eigen.git",
+          "revision": "d1e1f5e9f81d1d08c168967486cf7cf6e48f562e"
+        }
+      },
+      "deployment": "tool/ai_3d_worker/deployment/trellis2"
+    },
+    "hunyuan3d": {
+      "repository": "https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git",
+      "revision": "82920d643c0dc2f7bfd7255f45f62d386edfe60c"
+    },
+    "comfyui": {
+      "repository": "https://github.com/Comfy-Org/ComfyUI.git",
+      "revision": "1f641fd9337f0ec4d635a28415a8d25a8d15f753",
+      "apiContract": "upload-image-prompt-history-view",
+      "workflowFile": "deployment-configured",
+      "customNodeRevisions": "deployment-required"
+    }
+  }
+}

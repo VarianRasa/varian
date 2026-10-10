@@ -1,0 +1,38 @@
+services:
+  trellis2-worker:
+    build:
+      context: ../../../..
+      dockerfile: tool/ai_3d_worker/deployment/trellis2/Dockerfile
+    ports:
+      - "${AI_3D_WORKER_PORT:-20130}:20130"
+    environment:
+      VARIAN_3D_WORKER_TOKEN: "${VARIAN_3D_WORKER_TOKEN:?set VARIAN_3D_WORKER_TOKEN}"
+      HF_TOKEN: "${HF_TOKEN:-}"
+      HF_HOME: /root/.cache/huggingface
+      HUGGINGFACE_HUB_CACHE: /root/.cache/huggingface/hub
+      AI_3D_PUBLIC_BASE_URL: "${AI_3D_PUBLIC_BASE_URL:?set AI_3D_PUBLIC_BASE_URL}"
+      AI_3D_CORS_ORIGINS: "${AI_3D_CORS_ORIGINS:?set AI_3D_CORS_ORIGINS}"
+      AI_3D_DEFAULT_PROVIDER: trellis
+      TRELLIS2_ROOT: /opt/TRELLIS.2
+      TRELLIS2_MODEL: microsoft/TRELLIS.2-4B
+      TRELLIS2_MODEL_REVISION: af44b45f2e35a493886929c6d786e563ec68364d
+      TRELLIS2_PIPELINE_TYPE: "${TRELLIS2_PIPELINE_TYPE:-1024_cascade}"
+      TRELLIS2_MAX_NUM_TOKENS: "${TRELLIS2_MAX_NUM_TOKENS:-49152}"
+      TRELLIS2_HF_TOKEN_REQUIRED: "${TRELLIS2_HF_TOKEN_REQUIRED:-true}"
+      AI_3D_WORK_DIR: /var/lib/varian-ai-3d
+    volumes:
+      - trellis2-artifacts:/var/lib/varian-ai-3d
+      - trellis2-model-cache:/root/.cache/huggingface
+    shm_size: "16gb"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  trellis2-artifacts:
+  trellis2-model-cache:

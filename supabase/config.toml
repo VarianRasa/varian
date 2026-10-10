@@ -1,0 +1,28 @@
+project_id = "jnpxpylzzskaukgwhuzg"
+
+[functions.asset-library]
+verify_jwt = true
+
+[functions.link-preview]
+verify_jwt = false
+
+[functions.workspace-health]
+verify_jwt = false
+
+[functions.billing-webhook]
+verify_jwt = false
+
+[functions.workspace-retention]
+verify_jwt = false
+
+[functions.meeting-token]
+verify_jwt = false
+# The function reads these deployment-only environment names; values stay in
+# the Supabase Edge Function secret environment and are never client config:
+# LIVEKIT_URL
+# LIVEKIT_API_KEY
+# LIVEKIT_API_SECRET
+# ALLOWED_ORIGINS
+
+[functions.meeting-remove-participant]
+verify_jwt = false

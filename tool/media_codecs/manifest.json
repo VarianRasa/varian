@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "product": "varian",
+  "policy": "A target is production-ready only when its declared codec artifact is bundled, hash-pinned, license-reviewed, and exercised by the target runtime probe.",
+  "targets": {
+    "windows": {
+      "kind": "process",
+      "executable": "ffmpeg.exe",
+      "relativePaths": [
+        "codecs/ffmpeg.exe",
+        "data/codecs/ffmpeg.exe",
+        "resources/codecs/ffmpeg.exe"
+      ],
+      "required": true,
+      "sha256": null
+    },
+    "macos": {
+      "kind": "process",
+      "executable": "ffmpeg",
+      "relativePaths": ["codecs/ffmpeg", "data/codecs/ffmpeg", "resources/codecs/ffmpeg"],
+      "required": true,
+      "sha256": null
+    },
+    "linux": {
+      "kind": "process",
+      "executable": "ffmpeg",
+      "relativePaths": ["codecs/ffmpeg", "data/codecs/ffmpeg", "resources/codecs/ffmpeg"],
+      "required": true,
+      "sha256": null
+    },
+    "android": {
+      "kind": "native-bridge",
+      "executable": null,
+      "relativePaths": [],
+      "required": true,
+      "sha256": null,
+      "note": "Use an ABI-specific native bridge; process-backed ffmpeg is not accepted as Android bundling evidence."
+    },
+    "ios": {
+      "kind": "native-bridge",
+      "executable": null,
+      "relativePaths": [],
+      "required": true,
+      "sha256": null,
+      "note": "Use an iOS native codec bridge or approved framework; a desktop executable is not accepted."
+    }
+  }
+}

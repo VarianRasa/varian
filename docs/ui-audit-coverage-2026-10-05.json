@@ -1,0 +1,112 @@
+{
+  "date": "2026-10-05",
+  "scope": "Inventory reconciliation snapshot for the Flutter UI/UX audit",
+  "method": "Current source and fixture-path checks; not exhaustive component or visual coverage certification",
+  "router": {
+    "registeredEntries": 11,
+    "routeSource": "lib/main.dart:180-281",
+    "productionRouterFixture": "test/app/route_error_screen_test.dart",
+    "directProjectRouteFixture": "test/features/home/project_route_screen_test.dart",
+    "directMeetingFixtures": [
+      "test/features/meeting/pre_join_screen_test.dart",
+      "test/features/meeting/meeting_widgets_test.dart"
+    ],
+    "boundary": "Unauthenticated meeting redirects are tested in the production-router fixture. Authenticated meeting route builders are not mounted there; meeting screens use isolated local fakes. Production-router /missing/private-path is treated as the matched /project/:projectId missing-project state, while isolated GoRouter tests verify unmatched-route recovery."
+  },
+  "surfaceCoverageNotes": [
+    {
+      "feature": "Canvas",
+      "fixture": "test/features/canvas/canvas_editor_surface_preview_test.dart",
+      "coverage": "19 local widget tests covering Canvas host behaviors including GLB preview scaling, selected Model3D top-center resize and header drag, shape labels, connector endpoint/waypoint/elbow editing, Escape cancellation, and label drag. Connector and resize-handle gesture fixtures explicitly hide compact panels so the scrim does not intercept pointer input; the resize_handles_test.dart suite passes four tests.",
+      "verification": "flutter test --no-pub --concurrency=1 test/features/canvas/canvas_editor_surface_preview_test.dart, test/features/canvas/resize_handles_test.dart, and test/features/model3d/model3d_node_widget_test.dart passed serially on 2026-10-05; scoped flutter analyze reported no issues for three changed Dart targets."
+    },
+    {
+      "feature": "Canvas compact connector test fixture",
+      "coverage": "Connector test fixtures hide Layers and Inspector with CanvasEditorPanelController so the compact-panel scrim does not intercept pointer events. Production behavior was not changed as part of that fixture correction."
+    },
+    {
+      "feature": "Drawing paper and Canvas-adjacent surfaces",
+      "fixtures": [
+        "test/features/drawing_paper/drawing_studio_screen_test.dart",
+        "test/features/canvas/adjacent_drawing_paper_test.dart",
+        "test/features/canvas/governance_editor_menu_test.dart"
+      ],
+      "boundary": "Direct local widget/behavior fixtures; no production storage or live services."
+    },
+    {
+      "feature": "Canvas local dialogs and accessibility",
+      "fixtures": [
+        "test/features/canvas/annotation_pin_editor_dialog_test.dart",
+        "test/features/canvas/color_picker_dialog_responsive_test.dart",
+        "test/features/canvas/sketch_card_editor_dialog_accessibility_test.dart"
+      ],
+      "boundary": "Focused local widget tests; do not claim route-wide visual coverage."
+    },
+    {
+      "feature": "Presentation dialogs",
+      "fixtures": [
+        "test/features/presentation/presentation_timeline_dialog_test.dart",
+        "test/features/presentation/prototype_interaction_editor_dialog_test.dart",
+        "test/features/presentation/presentation_remote_dialogs_test.dart"
+      ],
+      "boundary": "Direct local dialog fixtures; remote host/controller fixtures use null Supabase and do not perform backend actions."
+    },
+    {
+      "feature": "Drawing Studio interaction overlays",
+      "sources": [
+        "lib/features/drawing_paper/presentation/studio/painters/studio_brush_cursor_painter.dart",
+        "lib/features/drawing_paper/presentation/studio/painters/studio_item_selection_painter.dart"
+      ],
+      "classification": "Brush cursor and selection/resize/rotation/marquee interaction overlays; studio_canvas_painter.dart also renders authored paper/strokes and is mixed content."
+    },
+    {
+      "feature": "Export capture surface",
+      "source": "lib/features/export/presentation/canvas_export_surface.dart",
+      "fixture": "test/features/export/canvas_export_surface_test.dart",
+      "classification": "Authored-content PNG capture boundary, not interactive chrome.",
+      "coverage": "Local 64x48 RenderRepaintBoundary dimensions, CanvasPainter presence, and background token using a synthetic shape and MemoryImageArtifactStore; subsequent focused rerun passed on 2026-10-05. No PNG export or file saving was invoked.",
+      "boundary": "No PNG export flow or file saving invoked."
+    },
+    {
+      "feature": "Interactive control target audit follow-up",
+      "candidates": [
+        {
+          "source": "lib/features/canvas/utils/hit_tester.dart:227",
+          "control": "Canvas resize/vector/drawing selection handles use an 8 px screen-space hit radius; selection handles are canvas manipulation affordances rather than conventional standalone buttons.",
+          "fixture": "test/features/canvas/resize_handles_test.dart",
+          "verificationGap": "Tests exercise handle detection, not touch-target geometry or small-screen touch ergonomics."
+        },
+        {
+          "source": "lib/features/canvas/presentation/widgets/canvas_editor_surface.dart:1987-2004",
+          "control": "Canvas document-title rename is an opaque GestureDetector with a 44 px minimum-height pointer target; the text visual remains natural height.",
+          "fixture": "test/features/canvas/canvas_top_bar_test.dart",
+          "verificationGap": "The composed title target and layout exceptions are asserted at 320/390/800/1280/1439/1440 px, covering both sides of the breadcrumb's wide-breakpoint transition. Browser/device rendering is not covered."
+        },
+        {
+          "source": "lib/features/model3d/presentation/model3d_node_widget.dart:1130-1144",
+          "control": "Model3D drag header has an opaque 44 px target while retaining the 14 px icon/label content; tap, drag, keyboard selection and semantic bounds are covered in the local node fixture.",
+          "verificationGap": "Local widget evidence covers target geometry, lower-edge tap, drag callback, keyboard Enter and accessibility semantics; browser/device visual and screen-reader validation remain open."
+        },
+        {
+          "source": "lib/features/model3d/presentation/model3d_node_widget.dart:1039-1054,1157-1160",
+          "control": "In threeDAndTwoD mode the live preview is fitted into half of the node viewport, but the control dock is a sibling overlay outside that FittedBox.",
+          "verificationGap": "The proposed dock-scaling defect is not supported by current source. Keep the standalone 44x44 control assertion; verify only if a future layout change nests the dock in the fitted preview."
+        },
+        {
+          "source": "lib/features/canvas/presentation/widgets/pdf_viewer_screen.dart:939-965,984-1011",
+          "control": "PDF page jump and zoom reset have 45 px minimum-height opaque hit targets around their existing compact bordered visuals; the toolbar is horizontally scrollable.",
+          "fixture": "test/features/file_card/pdf_viewer_screen_test.dart",
+          "verificationGap": "Focused geometry and page-jump interaction test passes at 320/390/800/1280 px with a local ProviderScope. The 320 px header uses a compact actions menu; visual/browser-device validation and other PDF loading/error states remain outside this fixture."
+        },
+        {
+          "source": "lib/features/link_card/presentation/link_card_widget.dart:363-390",
+          "control": "Selected link-card URL label/edit is an opaque minimum 44 px pointer target; compact cards under 128 px height reflow actions into a menu alongside the URL control.",
+          "fixture": "test/features/link_card/link_card_widget_test.dart",
+          "verificationGap": "Geometry and in-place edit targets are asserted at 320x220, 180x120, 120x100 and 120x80. The compact fixtures pass without layout exceptions; browser/device and accessibility-mode coverage remain open."
+        }
+      ],
+      "status": "Target follow-up is partial: Canvas title, PDF controls, LinkCard URL/edit and Model3D drag header use measured local target/interaction fixtures. The latest focused Canvas, PDF, LinkCard and Model3D fixtures pass at their listed sizes; shared UiButton composition coverage beyond sampled callsites, route/surface source-to-fixture reconciliation and browser/device evidence remain open."
+    }
+  ],
+  "verificationBoundary": "No browser/device visual evidence in this snapshot. No external authentication, live meeting/collaboration, publishing, export, URLs, production backend, account, or project data was accessed. This snapshot and docs/creative-studio-ui-inventory.md remain in progress; it does not assert exhaustive source-to-fixture or visual closure."
+}
