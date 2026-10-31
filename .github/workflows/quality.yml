@@ -36,7 +36,7 @@ jobs:
         run: python tool/check_lcov_threshold.py coverage/lcov.info --minimum 60
       - name: Upload Flutter coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-coverage
           path: coverage/lcov.info
@@ -81,7 +81,7 @@ jobs:
           python -m coverage xml -o worker-coverage.xml
       - name: Upload worker coverage
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: worker-coverage
           path: worker-coverage.xml
