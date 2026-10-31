@@ -13,6 +13,7 @@ import 'package:varian/app/widgets/varian_logo.dart';
 import 'package:varian/data/local/local_storage_service.dart';
 import 'package:varian/data/local/durable/project_session.dart';
 import 'package:varian/data/remote/supabase_service.dart';
+import 'package:varian/domain/models/cloud_project_deletion.dart';
 import 'package:varian/domain/models/document.dart';
 import 'package:varian/domain/models/collaboration.dart';
 import 'package:varian/features/home/presentation/widgets/backend_settings_dialog.dart';
@@ -28,6 +29,7 @@ import '../../auth/state/auth_recovery.dart';
 import '../../canvas/state/autosave_controller.dart';
 import '../../capture/presentation/capture_inbox_panel.dart';
 import '../state/home_provider.dart';
+import 'widgets/cloud_project_deletion_dialog.dart';
 import 'widgets/home_library_widgets.dart';
 import 'widgets/project_card.dart';
 import 'widgets/project_grid_layout.dart';
@@ -46,6 +48,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   String _query = '';
   ProjectSort _sort = ProjectSort.lastModified;
   bool _firstFrameReady = false;
+  String? _cloudDeletionStatusAccountId;
+  final Map<String, CloudProjectDeletionResult> _cloudDeletionStatuses = {};
 
   @override
   void initState() {
@@ -93,6 +97,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         : const AsyncValue<List<LocalProjectMetadata>>.loading();
     final selectedStatus = ref.watch(homeProjectStatusProvider);
     final user = ref.watch(authUserProvider).asData?.value;
+    if (_cloudDeletionStatusAccountId != user?.id) {
+      _cloudDeletionStatusAccountId = user?.id;
+      _cloudDeletionStatuses.clear();
+    }
     final localizations = CreativeStudioLocalizations.of(context);
     final tokens = context.appTokens;
     final compactHeader = AppResponsive.isNarrow(context);
@@ -214,7 +222,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       child: projectsAsync.when(
         loading: () => const UiLoadingState(),
         error: (err, _) => _buildLoadError(context, err),
-        data: (projects) => _buildLibrary(context, projects, selectedStatus),
+        data: (projects) =>
+            _buildLibrary(context, projects, selectedStatus, user),
       ),
     );
   }
@@ -265,6 +274,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     BuildContext context,
     List<LocalProjectMetadata> projects,
     ProjectStatus selectedStatus,
+    User? user,
   ) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -284,7 +294,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   const SizedBox(height: AppSpacing.md),
                   _buildToolbar(context, compact),
                   const SizedBox(height: AppSpacing.sm),
-                  _buildStatusTabs(context, projects, selectedStatus),
+                  _buildStatusTabs(context, projects, selectedStatus, user),
                 ],
               ),
             ),
@@ -430,6 +440,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     BuildContext context,
     List<LocalProjectMetadata> projects,
     ProjectStatus selectedStatus,
+    User? user,
   ) {
     final compact =
         MediaQuery.sizeOf(context).width < AppBreakpoints.compactStatusTabs;
@@ -453,7 +464,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   count: _countFor(projects, status),
                   compact: compact,
                 ),
-                child: _buildProjectCollection(context, projects, status),
+                child: _buildProjectCollection(context, projects, status, user),
               ),
           ],
         ),
@@ -542,6 +553,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       user != null &&
       !user.isAnonymous &&
       project.cloudOwnerId == null &&
+      !project.cloudDeletionDetached &&
       !project.isCollaborationRoom &&
       project.status != ProjectStatus.trashed;
 
@@ -618,10 +630,158 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     );
   }
 
+  bool _cloudAccountIsCurrent(String accountId) {
+    final client = ref.read(supabaseClientProvider);
+    final sessionUser =
+        client?.auth.currentUser ?? client?.auth.currentSession?.user;
+    final profileUser = ref.read(authUserProvider).asData?.value;
+    return sessionUser?.id == accountId &&
+        sessionUser?.isAnonymous == false &&
+        profileUser?.id == accountId &&
+        profileUser?.isAnonymous == false;
+  }
+
+  void _rememberCloudDeletionStatus(
+    String projectId,
+    CloudProjectDeletionResult result,
+  ) {
+    if (!mounted) return;
+    setState(() => _cloudDeletionStatuses[projectId] = result);
+  }
+
+  Future<void> _manageCloudProjectDeletion(
+    BuildContext context,
+    LocalProjectMetadata project,
+    String accountId,
+  ) async {
+    final copy = CreativeStudioLocalizations.of(context);
+    if (project.cloudOwnerId != accountId ||
+        project.isCollaborationRoom ||
+        !_cloudAccountIsCurrent(accountId)) {
+      showUiToast(
+        context,
+        copy.homeProjectCloudDeletionSignIn,
+        variant: UiToastVariant.error,
+      );
+      return;
+    }
+
+    final sync = ref.read(supabaseSyncServiceProvider);
+    CloudProjectDeletionResult? result;
+    try {
+      result = await sync.getOwnedProjectDeletionStatus(
+        project.id,
+        expectedUserId: accountId,
+      );
+    } catch (_) {
+      if (context.mounted) {
+        showUiToast(
+          context,
+          copy.homeProjectCloudDeletionError,
+          variant: UiToastVariant.error,
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+
+    if (result == null) {
+      final confirmed = await showUiDialog<bool>(
+        context: context,
+        builder: (dialogContext) => CloudProjectDeletionConfirmationDialog(
+          projectName: project.name,
+          onCancel: () => Navigator.of(dialogContext).pop(false),
+          onConfirm: () => Navigator.of(dialogContext).pop(true),
+        ),
+      );
+      if (!context.mounted || confirmed != true) return;
+      if (project.cloudOwnerId != accountId ||
+          !_cloudAccountIsCurrent(accountId)) {
+        showUiToast(
+          context,
+          copy.homeProjectCloudDeletionSignIn,
+          variant: UiToastVariant.error,
+        );
+        return;
+      }
+      try {
+        result = await sync.deleteOwnedProject(
+          project.id,
+          expectedUserId: accountId,
+        );
+      } catch (_) {
+        try {
+          result = await sync.getOwnedProjectDeletionStatus(
+            project.id,
+            expectedUserId: accountId,
+          );
+        } catch (_) {
+          result = null;
+        }
+        if (result == null) {
+          if (context.mounted) {
+            showUiToast(
+              context,
+              copy.homeProjectCloudDeletionError,
+              variant: UiToastVariant.error,
+            );
+          }
+          return;
+        }
+      }
+    }
+
+    if (!context.mounted) return;
+    final deletionResult = result;
+    if (deletionResult.status == CloudProjectDeletionStatus.complete) {
+      try {
+        await ref
+            .read(homeProjectsProvider.notifier)
+            .detachDeletedCloudProject(
+              projectId: project.id,
+              expectedAccountId: accountId,
+            );
+      } catch (_) {
+        if (context.mounted) {
+          showUiToast(
+            context,
+            copy.homeProjectCloudDeletionError,
+            variant: UiToastVariant.error,
+          );
+        }
+      }
+    }
+    if (!context.mounted) return;
+    _rememberCloudDeletionStatus(project.id, deletionResult);
+    await showUiDialog<void>(
+      context: context,
+      builder: (_) => CloudProjectDeletionStatusDialog(
+        initialResult: deletionResult,
+        loadStatus: () => sync.getOwnedProjectDeletionStatus(
+          project.id,
+          expectedUserId: accountId,
+        ),
+        retry: (jobId) => sync.retryOwnedProjectDeletion(
+          jobId: jobId,
+          expectedUserId: accountId,
+        ),
+        onStatusChanged: (updated) =>
+            _rememberCloudDeletionStatus(project.id, updated),
+        onCompleted: () => ref
+            .read(homeProjectsProvider.notifier)
+            .detachDeletedCloudProject(
+              projectId: project.id,
+              expectedAccountId: accountId,
+            ),
+      ),
+    );
+  }
+
   Widget _buildProjectCollection(
     BuildContext context,
     List<LocalProjectMetadata> projects,
     ProjectStatus status,
+    User? user,
   ) {
     final durableStore = ref.watch(durableProjectStoreProvider);
     final statusProjects = projects
@@ -683,6 +843,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           itemBuilder: (context, index) {
             final project = visibleProjects[index];
             final notifier = ref.read(homeProjectsProvider.notifier);
+            final canDeleteFromCloud =
+                user != null &&
+                !user.isAnonymous &&
+                project.cloudOwnerId == user.id &&
+                !project.isCollaborationRoom;
+            final cloudDeletionStatus = _cloudDeletionStatuses[project.id];
             return ProjectCard(
               key: ValueKey(project.id),
               project: project,
@@ -705,6 +871,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           true
                   ? () => _confirmAdoptProject(context, project)
                   : null,
+              onCloudDelete: canDeleteFromCloud
+                  ? () => _manageCloudProjectDeletion(context, project, user.id)
+                  : null,
+              cloudDeletionStatusLabel:
+                  canDeleteFromCloud && cloudDeletionStatus != null
+                  ? CreativeStudioLocalizations.of(
+                      context,
+                    ).homeProjectCloudDeletionLabel(
+                      cloudDeletionStatus.status.name,
+                    )
+                  : null,
+              cloudDeletionFailed:
+                  cloudDeletionStatus?.status ==
+                  CloudProjectDeletionStatus.failed,
               onRename: (newName) => _runProjectAction(
                 context,
                 () => notifier.renameProject(project.id, newName),

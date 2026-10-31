@@ -66,7 +66,7 @@ class LocalProjectMetadata {
   final int localMetadataRevision;
   final bool cloudMetadataSyncPending;
   final String? cloudAdoptionPendingAccountId;
-
+  final bool cloudDeletionDetached;
   LocalProjectMetadata({
     required this.id,
     required this.name,
@@ -85,6 +85,7 @@ class LocalProjectMetadata {
     this.localMetadataRevision = 0,
     this.cloudMetadataSyncPending = false,
     this.cloudAdoptionPendingAccountId,
+    this.cloudDeletionDetached = false,
   });
 
   bool get isCollaborationRoom =>
@@ -113,6 +114,7 @@ class LocalProjectMetadata {
     bool? cloudMetadataSyncPending,
     String? cloudAdoptionPendingAccountId,
     bool clearCloudAdoptionPendingAccountId = false,
+    bool? cloudDeletionDetached,
   }) {
     return LocalProjectMetadata(
       id: id ?? this.id,
@@ -149,6 +151,8 @@ class LocalProjectMetadata {
           ? null
           : (cloudAdoptionPendingAccountId ??
                 this.cloudAdoptionPendingAccountId),
+      cloudDeletionDetached:
+          cloudDeletionDetached ?? this.cloudDeletionDetached,
     );
   }
 
@@ -170,6 +174,7 @@ class LocalProjectMetadata {
     'localMetadataRevision': localMetadataRevision,
     'cloudMetadataSyncPending': cloudMetadataSyncPending,
     'cloudAdoptionPendingAccountId': cloudAdoptionPendingAccountId,
+    'cloudDeletionDetached': cloudDeletionDetached,
   };
 
   factory LocalProjectMetadata.fromJson(Map<String, dynamic> json) {
@@ -205,6 +210,7 @@ class LocalProjectMetadata {
           json['cloudMetadataSyncPending'] as bool? ?? false,
       cloudAdoptionPendingAccountId:
           json['cloudAdoptionPendingAccountId'] as String?,
+      cloudDeletionDetached: json['cloudDeletionDetached'] as bool? ?? false,
     );
   }
 }
@@ -651,7 +657,11 @@ class LocalStorageService {
     Object? primaryError;
     if (jsonStr != null) {
       try {
-        primaryDocument = CanvasDocument.fromJson(jsonDecode(jsonStr));
+        final decoded = jsonDecode(jsonStr);
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException('Canvas document must be a JSON object.');
+        }
+        primaryDocument = CanvasDocument.fromJson(decoded);
       } catch (error) {
         primaryError = error;
       }
@@ -786,7 +796,8 @@ class LocalStorageService {
       final index = projects.indexWhere((project) => project.id == projectId);
       if (index < 0) return;
       final current = projects[index];
-      if ((current.cloudOwnerId != null &&
+      if (current.cloudDeletionDetached ||
+          (current.cloudOwnerId != null &&
               current.cloudOwnerId != expectedAccountId) ||
           current.isCollaborationRoom ||
           current.status == ProjectStatus.trashed ||

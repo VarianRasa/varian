@@ -1584,14 +1584,15 @@ void main() {
       );
 
       final state = tester.state(find.byType(CanvasEditorSurface));
-      Future<void> drop(Uint8List bytes, String name) =>
-          (state as dynamic).handleFileDrop(
-            DropDoneDetails(
-              files: [DropItemFile.fromData(bytes, path: name)],
-              localPosition: Offset.zero,
-              globalPosition: Offset.zero,
-            ),
-          );
+      Future<void> drop(Uint8List bytes, String name) async {
+        await (state as dynamic).handleFileDrop(
+          DropDoneDetails(
+            files: [DropItemFile.fromData(bytes, path: name)],
+            localPosition: Offset.zero,
+            globalPosition: Offset.zero,
+          ),
+        );
+      }
 
       await drop(Uint8List.fromList(<int>[73, 68, 51, 3, 0, 0]), 'voice.mp3');
       await drop(
@@ -1791,11 +1792,17 @@ void main() {
           switch (request.url.path) {
             case '/rest/v1/projects':
               return http.Response(
-                jsonEncode({'id': projectId, 'owner_id': userId}),
+                jsonEncode([
+                  {'id': projectId, 'owner_id': userId},
+                ]),
                 200,
                 headers: {'content-type': 'application/json'},
                 request: request,
               );
+            case '/rest/v1/canvas_snapshots':
+            case '/rest/v1/user_project_preferences':
+            case '/rest/v1/workspace_notes':
+              return http.Response('[]', 200, request: request);
             case '/rest/v1/rpc/get_workspace_governance':
               return http.Response(
                 jsonEncode({

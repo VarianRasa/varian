@@ -10,6 +10,7 @@ import '../../../app/localization/app_localizations.dart';
 import '../../../app/supabase_bootstrap.dart';
 import '../../../app/responsive.dart';
 import '../../../app/theme.dart';
+import '../../../app/workspace_timestamp.dart';
 import '../../../app/widgets/ui_primitives.dart';
 import '../../../data/local/account_scoped_local_storage.dart';
 import '../../../data/local/durable/project_session.dart';
@@ -165,6 +166,28 @@ class _ProjectRouteScreenState extends ConsumerState<ProjectRouteScreen> {
         (project) => project?.id == projectId,
         orElse: () => null,
       );
+      final legacyMetadata = metadata;
+      if (legacyMetadata != null &&
+          legacyMetadata.name == 'Untitled Doc' &&
+          !legacyMetadata.isCollaborationRoom &&
+          (legacyMetadata.cloudOwnerId == null ||
+              (legacyMetadata.cloudOwnerId == _loadingCloudAccountId &&
+                  _cloudAccountIsCurrent(legacyMetadata.cloudOwnerId)))) {
+        final renamed = legacyMetadata.copyWith(
+          name: formatWorkspaceTimestamp(legacyMetadata.createdAt),
+          cloudMetadataSyncPending: legacyMetadata.cloudOwnerId != null
+              ? true
+              : legacyMetadata.cloudMetadataSyncPending,
+        );
+        final saved = await storage.saveProjectMetadataIfRevisionUnchanged(
+          renamed,
+          expectedRevision: legacyMetadata.localMetadataRevision,
+          shouldWrite: legacyMetadata.cloudOwnerId == null
+              ? null
+              : () => _cloudAccountIsCurrent(legacyMetadata.cloudOwnerId),
+        );
+        if (saved) metadata = renamed;
+      }
       if (await storage.requiresAccountScopedCollaborationRejoin(projectId)) {
         throw const _ProjectMembershipRequiredException();
       }

@@ -219,7 +219,8 @@ class _GuestCanvasRouteScreenState
     if (projectId == null) return;
     try {
       await _flushGuestBeforeNavigation(projectId);
-      if (context.mounted) context.go('/library');
+      if (!context.mounted) return;
+      context.go('/');
     } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

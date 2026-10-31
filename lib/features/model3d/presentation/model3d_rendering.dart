@@ -374,7 +374,10 @@ class Model3DScenePresentation {
       final geometry = mesh.geometry;
       final positions = geometry?.attributes['position'];
       final normals = geometry?.attributes['normal'];
-      if (positions == null || normals == null) continue;
+      if (positions is! three.BufferAttribute ||
+          normals is! three.BufferAttribute) {
+        continue;
+      }
 
       final values = <double>[];
       final count = math.min(positions.count, normals.count);
@@ -405,8 +408,8 @@ class Model3DScenePresentation {
           ..add(y!)
           ..add(z!)
           ..add(x + nx / normalLength * length)
-          ..add(y! + ny / normalLength * length)
-          ..add(z! + nz / normalLength * length);
+          ..add(y + ny / normalLength * length)
+          ..add(z + nz / normalLength * length);
       }
       if (values.isEmpty) continue;
 
@@ -442,8 +445,10 @@ class Model3DScenePresentation {
         final geometry = renderable.geometry;
         final uv = geometry?.attributes['uv'];
         final position = geometry?.attributes['position'];
-        if (uv != null && position != null) {
-          _collectUvTriangles(geometry!, uv, triangles);
+        if (uv is three.BufferAttribute &&
+            position is three.BufferAttribute &&
+            geometry != null) {
+          _collectUvTriangles(geometry, uv, triangles);
         }
       }
       final material = _originalMaterials[renderable] ?? renderable.material;

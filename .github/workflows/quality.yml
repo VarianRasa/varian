@@ -16,16 +16,24 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          flutter-version: '3.44.8'
           cache: true
-      - name: Install dependencies
-        run: flutter pub get
+      - name: Install dependencies from the committed lockfile
+        run: flutter pub get --enforce-lockfile
       - name: Check Dart formatting
         run: dart format --output=none --set-exit-if-changed lib test tool
       - name: Analyze Dart code
         run: flutter analyze
-      - name: Run Flutter tests with coverage
-        run: flutter test --no-pub --coverage
+      - name: Run Flutter tests with coverage and timing
+        run: |
+          start=$(date +%s)
+          if flutter test --no-pub --coverage; then status=0; else status=$?; fi
+          duration=$(( $(date +%s) - start ))
+          echo "Flutter test suite duration: ${duration}s"
+          echo "Flutter test suite duration: ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"
+      - name: Enforce Flutter line coverage threshold
+        run: python tool/check_lcov_threshold.py coverage/lcov.info --minimum 60
       - name: Upload Flutter coverage
         if: always()
         uses: actions/upload-artifact@v4
@@ -43,11 +51,52 @@ jobs:
         with:
           python-version: '3.12'
           cache: pip
-          cache-dependency-path: tool/ai_3d_worker/requirements.txt
-      - name: Install worker requirements
-        run: python -m pip install -r tool/ai_3d_worker/requirements.txt
-      - name: Test worker API and demo artifact lifecycle
-        run: python -m unittest tool.ai_3d_worker.test_worker
+          cache-dependency-path: tool/ai_3d_worker/requirements.lock
+      - name: Install locked worker and test requirements
+        run: python -m pip install -r tool/ai_3d_worker/requirements.lock
+      - name: Validate agent guide links and generated API schema
+        run: |
+          python tool/check_markdown_links.py AGENTS.md
+          python -m unittest tool.test_check_markdown_links
+          python -m tool.ai_3d_worker.export_openapi --check
+      - name: Install Ruff
+        run: python -m pip install ruff==0.17.1
+      - name: Lint Python worker
+        run: ruff check tool/check_lcov_threshold.py tool/check_markdown_links.py tool/test_check_markdown_links.py tool/ai_3d_worker
+      - name: Check Python formatting
+        run: ruff format --check tool/check_lcov_threshold.py tool/check_markdown_links.py tool/test_check_markdown_links.py tool/ai_3d_worker
+      - name: Install Python type checker
+        run: python -m pip install mypy==1.15.0
+      - name: Type-check worker runtime
+        run: mypy --strict --ignore-missing-imports --follow-imports=silent tool/ai_3d_worker/app.py tool/ai_3d_worker/providers.py tool/ai_3d_worker/glb_utils.py tool/ai_3d_worker/preview.py tool/ai_3d_worker/postprocess.py tool/ai_3d_worker/blender_postprocess.py tool/ai_3d_worker/blender_preview.py tool/ai_3d_worker/export_openapi.py
+      - name: Test worker API and demo artifact lifecycle with coverage and timing
+        run: |
+          start=$(date +%s)
+          if python -m coverage run --source=tool.ai_3d_worker -m unittest tool.ai_3d_worker.test_worker; then status=0; else status=$?; fi
+          duration=$(( $(date +%s) - start ))
+          echo "Worker test suite duration: ${duration}s"
+          echo "Worker test suite duration: ${duration}s" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then exit "$status"; fi
+          python -m coverage report --fail-under=60
+          python -m coverage xml -o worker-coverage.xml
+      - name: Upload worker coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: worker-coverage
+          path: worker-coverage.xml
+          if-no-files-found: ignore
+
+  edge-functions:
+    name: Supabase Edge Function tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.9.6
+      - name: Test Edge Function modules with locked dependencies
+        run: deno test --frozen --lock=deno.lock --allow-env=FAL_KEY --allow-env=FAL_3D_MODEL --allow-env=ALLOWED_ORIGINS --allow-env=BUF_BIGINT_DISABLE supabase/functions
 
   secrets:
     name: Secret scan

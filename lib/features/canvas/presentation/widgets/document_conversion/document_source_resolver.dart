@@ -72,7 +72,12 @@ Future<ResolvedDocumentSource> resolveDocumentSource(
   }
   final uri = validDocumentRemoteUri(payload.remoteUrl);
   if (bytes == null && uri != null) {
-    bytes = await (readRemote ?? _readRemote)(uri, maxBytes: maxBytes);
+    final reader = readRemote;
+    if (reader == null) {
+      bytes = await _readRemote(uri, maxBytes: maxBytes);
+    } else {
+      bytes = await reader(uri);
+    }
   }
   if (bytes == null || bytes.isEmpty) {
     throw const DocumentConversionFailure(

@@ -1354,7 +1354,7 @@ class AssetLibraryProviderCache {
     return AssetLibraryProviderCache(
       items: [
         for (final value in rawItems.take(100))
-          AssetLibraryItem.fromJson(Map<String, dynamic>.from(value)),
+          AssetLibraryItem.fromJson(Map<String, dynamic>.from(value as Map)),
       ],
       nextCursor: cursor,
       fetchedAt: fetchedAt.toUtc(),

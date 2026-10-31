@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:varian/domain/models/collaboration.dart';
 import 'package:varian/domain/models/drawing_paper_payload.dart';
 import 'package:varian/domain/models/node.dart';
 import 'package:varian/domain/models/node_payload.dart';
 import 'package:varian/features/canvas/presentation/canvas_screen.dart';
 import 'package:varian/features/canvas/state/autosave_controller.dart';
+import 'package:varian/features/collaboration/state/collaboration_session_provider.dart';
 import 'package:varian/features/canvas/state/document_nodes_provider.dart';
 import 'package:varian/features/canvas/state/selection_provider.dart';
 
@@ -58,11 +60,15 @@ void main() {
           autosaveControllerProvider.overrideWith(
             (ref) => _NoopAutosaveController(ref),
           ),
+          collaborationVerifiedRoleForTestingProvider.overrideWithValue(
+            CollaborationRole.owner,
+          ),
         ],
         child: testApp(
           const CanvasScreen(
             projectId: 'adjacent-paper-test',
             projectName: 'Adjacent paper test',
+            collaborationRole: CollaborationRole.owner,
           ),
         ),
       ),

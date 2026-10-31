@@ -12,6 +12,27 @@ import 'package:varian/features/auth/state/auth_recovery.dart';
 
 import '../../test_app.dart';
 
+class _SuccessfulAuthService extends AuthService {
+  _SuccessfulAuthService() : super(null);
+
+  bool didSignIn = false;
+  bool didSignUp = false;
+
+  @override
+  bool get canAttempt => true;
+
+  @override
+  Future<void> signIn({required String email, required String password}) async {
+    didSignIn = true;
+  }
+
+  @override
+  Future<bool> signUp({required String email, required String password}) async {
+    didSignUp = true;
+    return true;
+  }
+}
+
 void main() {
   testWidgets('shows the canvas auth page without developer config fields', (
     tester,
@@ -361,6 +382,110 @@ void main() {
     expect(first.tryStart(now: start), isTrue);
     expect(container.read(passwordResetCooldownProvider), same(first));
     expect(first.remainingAt(start), const Duration(seconds: 30));
+  });
+
+  testWidgets('embedded auth reports successful sign-in and sign-up', (
+    tester,
+  ) async {
+    final auth = _SuccessfulAuthService();
+    var authenticated = 0;
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          supabaseClientProvider.overrideWithValue(null),
+          authServiceProvider.overrideWithValue(auth),
+        ],
+        child: testApp(
+          AuthScreen(embedded: true, onAuthenticated: () => authenticated++),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'user@example.com',
+    );
+    await tester.enterText(find.byType(TextFormField).last, 'password-123');
+    await tester.tap(find.text('SIGN IN').first);
+    await tester.pumpAndSettle();
+
+    expect(auth.didSignIn, isTrue);
+    expect(authenticated, 1);
+
+    await tester.ensureVisible(find.text('CREATE ACCOUNT').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('CREATE ACCOUNT').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(TextFormField).first,
+      'user@example.com',
+    );
+    await tester.enterText(find.byType(TextFormField).last, 'password-123');
+    await tester.tap(find.text('CREATE ACCOUNT').first);
+    await tester.pumpAndSettle();
+
+    expect(auth.didSignUp, isTrue);
+    expect(authenticated, 2);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('embedded auth stays usable in narrow and short panels', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    for (final size in [const Size(264, 260), const Size(320, 320)]) {
+      tester.view.physicalSize = size;
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [supabaseClientProvider.overrideWithValue(null)],
+          child: testApp(
+            Builder(
+              builder: (context) => MediaQuery(
+                data: MediaQuery.of(
+                  context,
+                ).copyWith(textScaler: const TextScaler.linear(1.5)),
+                child: const AuthScreen(embedded: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(AuthScreen), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('auth-embedded-background-grid')),
+        findsOneWidget,
+      );
+      expect(find.byTooltip('Back to canvas'), findsNothing);
+      expect(find.byType(UiSurface), findsNothing);
+      expect(find.text('Continue with Google'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.ensureVisible(find.text('CREATE ACCOUNT'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('CREATE ACCOUNT').last);
+      await tester.pumpAndSettle();
+      expect(find.text('Sign up with Google'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.ensureVisible(find.text('SIGN IN').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('SIGN IN').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Forgot password?'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Forgot password?'));
+      await tester.pumpAndSettle();
+      expect(find.text('Reset your password'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      expect(find.byTooltip('Back to canvas'), findsNothing);
+      expect(find.byType(UiSurface), findsNothing);
+    }
   });
 
   test('uses the publisher Supabase defaults without build flags', () {

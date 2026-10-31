@@ -55,7 +55,8 @@ class CanvasSpatialIndex {
     final maxRow = _cellCoordinate(bounds.bottom, cellSize);
     for (var column = minColumn; column <= maxColumn; column++) {
       for (var row = minRow; row <= maxRow; row++) {
-        for (final node in _cells[_CellKey(column, row)] ?? const []) {
+        for (final node
+            in _cells[_CellKey(column, row)] ?? const <CanvasNode>[]) {
           if (node.bounds.overlaps(bounds) ||
               node.bounds.contains(bounds.center)) {
             result[node.id] = node;

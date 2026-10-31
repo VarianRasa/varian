@@ -290,12 +290,15 @@ class _UiCompactActionsMenu extends StatelessWidget {
         borderRadius: BorderRadius.circular(tokens.panelRadius),
         side: BorderSide(color: tokens.panelBorder, width: AppBorder.thin),
       ),
-      popUpAnimationStyle: AnimationStyle(
-        duration: AppMotion.durationFor(context, AppMotion.standard),
-        reverseDuration: AppMotion.durationFor(context, AppMotion.short),
-        curve: Curves.easeOutCubic,
-        reverseCurve: Curves.easeInCubic,
-      ),
+      popUpAnimationStyle:
+          AppMotion.durationFor(context, AppMotion.standard) == Duration.zero
+          ? AnimationStyle.noAnimation
+          : AnimationStyle(
+              duration: AppMotion.durationFor(context, AppMotion.standard),
+              reverseDuration: AppMotion.durationFor(context, AppMotion.short),
+              curve: Curves.easeOutCubic,
+              reverseCurve: Curves.easeInCubic,
+            ),
       position: PopupMenuPosition.under,
       offset: const Offset(0, 8),
       menuPadding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
@@ -864,6 +867,7 @@ class UiIconButton extends StatelessWidget {
   final double iconSize;
   final Color? color;
   final bool selected;
+  final Widget? iconWidget;
 
   const UiIconButton({
     required this.icon,
@@ -874,6 +878,7 @@ class UiIconButton extends StatelessWidget {
     this.iconSize = 16,
     this.color,
     this.selected = false,
+    this.iconWidget,
     super.key,
   });
 
@@ -891,11 +896,119 @@ class UiIconButton extends StatelessWidget {
         iconOnly: true,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: AppSpacing.xs),
-          child: Icon(icon, size: iconSize, color: color),
+          child: iconWidget ?? Icon(icon, size: iconSize, color: color),
         ),
       ),
     );
   }
+}
+
+enum SidebarPanelSide { left, right }
+
+/// Compact outline that shows a sidebar's location and toggle direction.
+class SidebarPanelToggleIcon extends StatelessWidget {
+  final SidebarPanelSide side;
+  final bool expanded;
+  final IconData? cue;
+
+  const SidebarPanelToggleIcon({
+    required this.side,
+    required this.expanded,
+    this.cue,
+    super.key,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 16,
+      height: 16,
+      child: Stack(
+        children: [
+          CustomPaint(
+            size: const Size.square(16),
+            painter: SidebarPanelTogglePainter(
+              side: side,
+              expanded: expanded,
+              color: IconTheme.of(context).color ?? Colors.white,
+            ),
+          ),
+          if (cue != null)
+            Positioned(
+              left: side == SidebarPanelSide.left ? 9 : 2,
+              top: 9,
+              child: ExcludeSemantics(child: Icon(cue, size: 5)),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+@immutable
+class SidebarPanelTogglePainter extends CustomPainter {
+  final SidebarPanelSide side;
+  final bool expanded;
+  final Color color;
+
+  const SidebarPanelTogglePainter({
+    required this.side,
+    required this.expanded,
+    required this.color,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final stroke = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.2
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final panelFill = Paint()
+      ..color = color.withValues(alpha: expanded ? 0.22 : 0.1)
+      ..style = PaintingStyle.fill;
+    final frame = RRect.fromRectAndRadius(
+      Rect.fromLTWH(1, 1, size.width - 2, size.height - 2),
+      const Radius.circular(2),
+    );
+    canvas.drawRRect(frame, stroke);
+
+    final onLeft = side == SidebarPanelSide.left;
+    final dividerX = onLeft
+        ? expanded
+              ? 5.5
+              : 4.5
+        : expanded
+        ? size.width - 5.5
+        : size.width - 4.5;
+    final panelRect = onLeft
+        ? Rect.fromLTRB(2, 2, dividerX, size.height - 2)
+        : Rect.fromLTRB(dividerX, 2, size.width - 2, size.height - 2);
+    canvas.drawRect(panelRect, panelFill);
+    canvas.drawLine(
+      Offset(dividerX, 2),
+      Offset(dividerX, size.height - 2),
+      stroke,
+    );
+
+    final pointsLeft = (onLeft && expanded) || (!onLeft && !expanded);
+    final contentCenterX = onLeft
+        ? (dividerX + size.width - 2) / 2
+        : (2 + dividerX) / 2;
+    final direction = pointsLeft ? -1.0 : 1.0;
+    final chevron = Path()
+      ..moveTo(contentCenterX - direction, 5.5)
+      ..lineTo(contentCenterX + direction, 8)
+      ..lineTo(contentCenterX - direction, 10.5);
+    canvas.drawPath(chevron, stroke);
+  }
+
+  @override
+  bool shouldRepaint(covariant SidebarPanelTogglePainter oldDelegate) =>
+      side != oldDelegate.side ||
+      expanded != oldDelegate.expanded ||
+      color != oldDelegate.color;
 }
 
 class UiMenuAction<T> {

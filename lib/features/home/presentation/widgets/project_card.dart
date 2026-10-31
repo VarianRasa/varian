@@ -16,6 +16,7 @@ enum _ProjectCardAction {
   archive,
   delete,
   adopt,
+  deleteFromCloud,
 }
 
 class ProjectCard extends StatelessWidget {
@@ -29,6 +30,9 @@ class ProjectCard extends StatelessWidget {
   final VoidCallback? onDuplicate;
   final VoidCallback? onPurge;
   final VoidCallback? onAdopt;
+  final VoidCallback? onCloudDelete;
+  final String? cloudDeletionStatusLabel;
+  final bool cloudDeletionFailed;
   final DurableProjectStore? durableStore;
 
   const ProjectCard({
@@ -43,6 +47,9 @@ class ProjectCard extends StatelessWidget {
     this.onDuplicate,
     this.onPurge,
     this.onAdopt,
+    this.onCloudDelete,
+    this.cloudDeletionStatusLabel,
+    this.cloudDeletionFailed = false,
     this.durableStore,
   });
 
@@ -105,6 +112,8 @@ class ProjectCard extends StatelessWidget {
                     onDelete();
                   case _ProjectCardAction.adopt:
                     onAdopt?.call();
+                  case _ProjectCardAction.deleteFromCloud:
+                    onCloudDelete?.call();
                 }
               },
               items: [
@@ -115,6 +124,17 @@ class ProjectCard extends StatelessWidget {
                       context,
                     ).homeProjectAdoptAction,
                     icon: Icons.cloud_upload_outlined,
+                  ),
+                if (onCloudDelete != null)
+                  UiMenuAction(
+                    value: _ProjectCardAction.deleteFromCloud,
+                    label:
+                        cloudDeletionStatusLabel ??
+                        CreativeStudioLocalizations.of(
+                          context,
+                        ).homeProjectDeleteFromCloudAction,
+                    icon: Icons.cloud_off_outlined,
+                    destructive: cloudDeletionFailed,
                   ),
                 UiMenuAction(
                   value: _ProjectCardAction.togglePinned,
@@ -258,6 +278,33 @@ class ProjectCard extends StatelessWidget {
                       color: tokens.accent,
                       fontFamily: 'monospace',
                       letterSpacing: .2,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (cloudDeletionStatusLabel != null) ...[
+            const SizedBox(height: AppSpacing.xxs),
+            Row(
+              children: [
+                Icon(
+                  cloudDeletionFailed
+                      ? Icons.error_outline
+                      : Icons.cloud_sync_outlined,
+                  size: 13,
+                  color: cloudDeletionFailed ? tokens.danger : tokens.accent,
+                ),
+                const SizedBox(width: AppSpacing.xs),
+                Expanded(
+                  child: Text(
+                    cloudDeletionStatusLabel!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall!.copyWith(
+                      color: cloudDeletionFailed
+                          ? tokens.danger
+                          : tokens.accent,
                     ),
                   ),
                 ),

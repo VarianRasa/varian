@@ -59,8 +59,8 @@ def validate_png_bytes(
         if chunk_type == b"IHDR":
             if dimensions is not None or length != 13:
                 raise PreviewValidationError("Preview image header is invalid.")
-            width, height, bit_depth, color_type, compression, filter_method, interlace = struct.unpack(
-                ">IIBBBBB", chunk_data
+            width, height, bit_depth, color_type, compression, filter_method, interlace = (
+                struct.unpack(">IIBBBBB", chunk_data)
             )
             if (
                 width == 0
@@ -108,28 +108,48 @@ def write_fallback_preview(path: Path, *, width: int = 512, height: int = 512) -
         shade = max(18, 45 - int((y - floor_y) * 0.12))
         for x in range(width):
             index = (y * width + x) * 3
-            pixels[index:index + 3] = bytes((shade, shade + 5, shade + 14))
+            pixels[index : index + 3] = bytes((shade, shade + 5, shade + 14))
 
     shadow_center = (width // 2, int(height * 0.76))
     shadow_radius_x = int(width * 0.24)
     shadow_radius_y = int(height * 0.035)
-    for y in range(max(0, shadow_center[1] - shadow_radius_y), min(height, shadow_center[1] + shadow_radius_y + 1)):
-        for x in range(max(0, shadow_center[0] - shadow_radius_x), min(width, shadow_center[0] + shadow_radius_x + 1)):
+    for y in range(
+        max(0, shadow_center[1] - shadow_radius_y),
+        min(height, shadow_center[1] + shadow_radius_y + 1),
+    ):
+        for x in range(
+            max(0, shadow_center[0] - shadow_radius_x),
+            min(width, shadow_center[0] + shadow_radius_x + 1),
+        ):
             normalized_x = (x - shadow_center[0]) / max(1, shadow_radius_x)
             normalized_y = (y - shadow_center[1]) / max(1, shadow_radius_y)
             if normalized_x * normalized_x + normalized_y * normalized_y <= 1:
                 index = (y * width + x) * 3
-                pixels[index:index + 3] = bytes((8, 11, 19))
+                pixels[index : index + 3] = bytes((8, 11, 19))
 
     center_x = width // 2
     top_y = int(height * 0.25)
-    mid_y = int(height * 0.42)
     bottom_y = int(height * 0.72)
     half_width = int(width * 0.21)
     depth = int(width * 0.14)
-    top = [(center_x, top_y), (center_x + half_width, top_y + depth), (center_x, top_y + depth * 2), (center_x - half_width, top_y + depth)]
-    left = [(center_x - half_width, top_y + depth), (center_x, top_y + depth * 2), (center_x, bottom_y), (center_x - half_width, bottom_y - depth)]
-    right = [(center_x, top_y + depth * 2), (center_x + half_width, top_y + depth), (center_x + half_width, bottom_y - depth), (center_x, bottom_y)]
+    top = [
+        (center_x, top_y),
+        (center_x + half_width, top_y + depth),
+        (center_x, top_y + depth * 2),
+        (center_x - half_width, top_y + depth),
+    ]
+    left = [
+        (center_x - half_width, top_y + depth),
+        (center_x, top_y + depth * 2),
+        (center_x, bottom_y),
+        (center_x - half_width, bottom_y - depth),
+    ]
+    right = [
+        (center_x, top_y + depth * 2),
+        (center_x + half_width, top_y + depth),
+        (center_x + half_width, bottom_y - depth),
+        (center_x, bottom_y),
+    ]
     _fill_polygon(pixels, width, height, top, (109, 199, 255))
     _fill_polygon(pixels, width, height, left, (49, 116, 183))
     _fill_polygon(pixels, width, height, right, (72, 151, 216))
@@ -148,13 +168,23 @@ def _encode_png(width: int, height: int, pixels: bytearray) -> bytes:
     for row in range(height):
         scanlines.append(0)
         start = row * row_size
-        scanlines.extend(pixels[start:start + row_size])
+        scanlines.extend(pixels[start : start + row_size])
     header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
-    return PNG_SIGNATURE + _png_chunk(b"IHDR", header) + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines), 9)) + _png_chunk(b"IEND", b"")
+    return (
+        PNG_SIGNATURE
+        + _png_chunk(b"IHDR", header)
+        + _png_chunk(b"IDAT", zlib.compress(bytes(scanlines), 9))
+        + _png_chunk(b"IEND", b"")
+    )
 
 
 def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
-    return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+    return (
+        struct.pack(">I", len(data))
+        + chunk_type
+        + data
+        + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xFFFFFFFF)
+    )
 
 
 def _fill_polygon(
@@ -181,7 +211,7 @@ def _fill_polygon(
             end = min(width - 1, int(intersections[index + 1]))
             for x in range(start, end + 1):
                 pixel_index = (y * width + x) * 3
-                pixels[pixel_index:pixel_index + 3] = bytes(color)
+                pixels[pixel_index : pixel_index + 3] = bytes(color)
 
 
 def _draw_polygon(
@@ -214,7 +244,7 @@ def _draw_line(
     while True:
         if 0 <= x0 < width and 0 <= y0 < height:
             pixel_index = (y0 * width + x0) * 3
-            pixels[pixel_index:pixel_index + 3] = bytes(color)
+            pixels[pixel_index : pixel_index + 3] = bytes(color)
         if x0 == x1 and y0 == y1:
             return
         double_error = 2 * error

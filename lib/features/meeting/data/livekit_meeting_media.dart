@@ -301,7 +301,7 @@ final class LiveKitMeetingMediaProvider implements MeetingMediaProvider {
   @override
   Widget? buildVideoSurface(MeetingVideoSurface surface) {
     if (_disposed || surface.identity.trim().isEmpty) return null;
-    final dynamic participant = surface.isLocal
+    final Participant<TrackPublication<Track>>? participant = surface.isLocal
         ? _room?.localParticipant
         : _room?.remoteParticipants[surface.identity];
     if (participant == null) return null;
@@ -309,7 +309,7 @@ final class LiveKitMeetingMediaProvider implements MeetingMediaProvider {
       MeetingVideoSource.camera => TrackSource.camera,
       MeetingVideoSource.screenShare => TrackSource.screenShareVideo,
     };
-    dynamic publication;
+    TrackPublication<Track>? publication;
     for (final candidate in participant.trackPublications.values) {
       if (candidate.source == source) {
         publication = candidate;

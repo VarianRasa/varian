@@ -14,6 +14,54 @@ import 'package:varian/app/responsive.dart';
 import 'package:varian/app/theme.dart';
 import '../../test_app.dart';
 
+class _FakePdfTextSearcher implements PdfTextSearcher {
+  final Set<VoidCallback> _listeners = {};
+
+  @override
+  VoidCallback addListener(VoidCallback listener) {
+    _listeners.add(listener);
+    return () {
+      _listeners.remove(listener);
+    };
+  }
+
+  @override
+  void removeListener(VoidCallback listener) {
+    _listeners.remove(listener);
+  }
+
+  @override
+  List<PdfPageTextRange> get matches => const [];
+
+  @override
+  int? get currentIndex => null;
+
+  @override
+  bool get hasMatches => false;
+
+  @override
+  bool get isSearching => false;
+
+  @override
+  void startTextSearch(
+    Pattern pattern, {
+    bool caseInsensitive = true,
+    bool goToFirstMatch = true,
+    bool searchImmediately = false,
+  }) {}
+
+  @override
+  void resetTextSearch() {}
+
+  @override
+  void dispose() {
+    _listeners.clear();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -87,8 +135,7 @@ void main() {
     testWidgets(
       'PdfSearchBar renders and triggers search interaction correctly',
       (tester) async {
-        final controller = PdfViewerController();
-        final textSearcher = PdfTextSearcher(controller);
+        final textSearcher = _FakePdfTextSearcher();
         bool closed = false;
 
         await tester.pumpWidget(
@@ -133,8 +180,7 @@ void main() {
         tester.view.physicalSize = const Size(320, 640);
         tester.view.devicePixelRatio = 1;
         addTearDown(tester.view.reset);
-        final controller = PdfViewerController();
-        final textSearcher = PdfTextSearcher(controller);
+        final textSearcher = _FakePdfTextSearcher();
         var closed = false;
 
         await tester.pumpWidget(
@@ -478,12 +524,15 @@ void main() {
         AppTokens.dark.text,
       );
 
-      // Toggle search
-      await tester.tap(find.byTooltip('Search Document (Ctrl + F)'));
-      await tester.pump(const Duration(milliseconds: 100));
-      expect(find.byType(PdfSearchBar), findsOneWidget);
-      await tester.tap(find.byTooltip('Close Search (Esc)'));
-      await tester.pump(const Duration(milliseconds: 100));
+      // Search stays unavailable until the document is ready.
+      final searchButton = find.byWidgetPredicate(
+        (widget) =>
+            widget is UiIconButton &&
+            widget.tooltip == 'Search Document (Ctrl + F)',
+      );
+      expect(searchButton, findsOneWidget);
+      expect(tester.widget<UiIconButton>(searchButton).onPressed, isNull);
+      expect(find.byType(PdfSearchBar), findsNothing);
 
       // Toggle sidebar after dismissing the overlapping search overlay.
       await tester.tap(

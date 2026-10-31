@@ -120,6 +120,17 @@ void main() {
       final container = ProviderScope.containerOf(
         tester.element(find.byType(CanvasScreen)),
       );
+      await tester.runAsync(() async {
+        for (var attempt = 0; attempt < 20; attempt++) {
+          if (container
+              .read(documentNodesProvider)
+              .any((node) => node.type == NodeType.text)) {
+            return;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      });
+      await tester.pump();
       final nodes = container.read(documentNodesProvider);
       final inserted = nodes.singleWhere((node) => node.type == NodeType.text);
       expect((inserted.payload as TextPayload).text, captureText);

@@ -9,15 +9,12 @@ import 'package:varian/data/local/durable/durable_project_store.dart';
 import 'package:varian/data/remote/supabase_service.dart';
 import 'package:varian/data/local/durable/project_session.dart';
 import 'package:varian/features/canvas/presentation/canvas_screen.dart';
-import 'package:varian/features/home/presentation/home_screen.dart';
 import 'package:varian/main.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('opens a guest canvas and gates library and workspace save', (
-    tester,
-  ) async {
+  testWidgets('opens a guest canvas with its Workspace panel', (tester) async {
     tester.view.physicalSize = const Size(929, 1016);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
@@ -41,7 +38,6 @@ void main() {
 
     expect(tester.takeException(), isNull);
     expect(find.byType(CanvasScreen), findsOneWidget);
-    expect(find.byType(HomeScreen), findsNothing);
 
     final guestProjectId = tester
         .widget<CanvasScreen>(find.byType(CanvasScreen))
@@ -49,24 +45,14 @@ void main() {
     final router = GoRouter.of(tester.element(find.byType(CanvasScreen)));
     final compactMenu = find.byKey(const ValueKey('ui-compact-actions-menu'));
     expect(compactMenu, findsOneWidget);
-    final projectLibrary = find.byKey(const ValueKey('canvas-open-library'));
-    expect(
-      find.descendant(of: find.byType(AppBar), matching: projectLibrary),
-      findsOneWidget,
-      reason: 'Project Library stays in the header at this viewport width.',
-    );
+    expect(find.byTooltip('Workspace'), findsNothing);
     expect(find.text('Untitled Project'), findsOneWidget);
 
     await tester.tap(compactMenu);
     await tester.pumpAndSettle();
     expect(find.byType(Drawer), findsNothing);
     expect(find.text('Canvas menu'), findsOneWidget);
-    expect(
-      find.descendant(of: find.byType(AppBar), matching: projectLibrary),
-      findsOneWidget,
-      reason:
-          'Opening More must not move or duplicate the primary library action.',
-    );
+    expect(find.byTooltip('Workspace'), findsNothing);
     await tester.tapAt(const Offset(12, 300));
     await tester.pumpAndSettle();
     expect(find.text('Canvas menu'), findsNothing);
@@ -122,18 +108,14 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byType(CanvasScreen), findsOneWidget);
     expect(find.text('Untitled Project'), findsOneWidget);
+    expect(find.byTooltip('Workspace'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('canvas-open-library')));
+    router.go('/library');
     await tester.pumpAndSettle();
-    expect(tester.takeException(), isNull);
-    expect(router.routeInformationProvider.value.uri.path, '/auth');
-    expect(
-      router.routeInformationProvider.value.uri.queryParameters['returnTo'],
-      '/library',
-    );
+    expect(router.routeInformationProvider.value.uri.path, '/');
+    expect(find.byType(CanvasScreen), findsOneWidget);
+    expect(await durableStore.loadCanvasDocument(guestProjectId), isNotNull);
 
-    router.go('/');
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('ui-compact-actions-menu')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('canvas-save-workspace')));

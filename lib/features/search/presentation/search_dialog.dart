@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:varian/app/responsive.dart';
 import 'package:varian/app/theme.dart';
 import 'package:varian/app/widgets/ui_primitives.dart';
+import 'package:varian/data/local/local_storage_service.dart';
 import 'package:varian/features/canvas/state/document_nodes_provider.dart';
 import 'package:varian/features/home/state/home_provider.dart';
 import 'package:varian/features/search/search_service.dart';
@@ -151,7 +152,7 @@ class _SearchDialogState extends ConsumerState<SearchDialog> {
     child: UiSectionHeader(title: label),
   );
 
-  Widget _projectTile(dynamic project) {
+  Widget _projectTile(LocalProjectMetadata project) {
     final tokens = context.appTokens;
     return UiButton(
       onPressed: () => Navigator.pop(context),

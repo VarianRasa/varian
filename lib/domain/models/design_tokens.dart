@@ -67,20 +67,20 @@ class DesignToken {
     final modes = <String, Object>{};
     if (rawModes is Map) {
       for (final entry in rawModes.entries) {
-        if (entry.key is! String ||
-            (entry.value is! String &&
-                entry.value is! num &&
-                entry.value is! bool)) {
+        final key = entry.key;
+        final value = entry.value;
+        if (key is! String ||
+            (value is! String && value is! num && value is! bool)) {
           continue;
         }
-        modes[entry.key as String] = entry.value as Object;
+        modes[key] = value as Object;
       }
     }
     return DesignToken(
       id: id,
       name: name,
       type: type,
-      value: rawValue,
+      value: rawValue as Object,
       modeValues: modes,
       description: json['description'] as String?,
       updatedAt:

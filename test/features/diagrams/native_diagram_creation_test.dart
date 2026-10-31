@@ -14,6 +14,7 @@ void main() {
   testWidgets('creates a selected native diagram shape by dragging', (
     tester,
   ) async {
+    _setWideViewport(tester);
     final container = ProviderContainer();
     addTearDown(container.dispose);
     container.read(activeDiagramShapeProvider.notifier).state =
@@ -70,6 +71,7 @@ void main() {
   testWidgets('creates a native diagram shape by clicking the canvas', (
     tester,
   ) async {
+    _setWideViewport(tester);
     final container = ProviderContainer();
     addTearDown(container.dispose);
     container.read(activeDiagramShapeProvider.notifier).state =
@@ -111,6 +113,7 @@ void main() {
   testWidgets(
     'creates a native diagram shape when dragged from a palette item',
     (tester) async {
+      _setWideViewport(tester);
       final container = ProviderContainer();
       addTearDown(container.dispose);
 
@@ -168,6 +171,7 @@ void main() {
   testWidgets('creates primitive shapes with their native geometry', (
     tester,
   ) async {
+    _setWideViewport(tester);
     final created = <CanvasNode>[];
     final containers = <ProviderContainer>[];
     addTearDown(() {
@@ -232,4 +236,10 @@ void main() {
     expect(byShapeId['circle']!.height, 100);
     expect(tester.takeException(), isNull);
   });
+}
+
+void _setWideViewport(WidgetTester tester) {
+  tester.view.physicalSize = const Size(1400, 900);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
 }

@@ -36,14 +36,40 @@ import 'features/canvas/presentation/guest_canvas_route_screen.dart';
 import 'features/canvas/presentation/secure_share_screen.dart';
 import 'features/canvas/state/autosave_controller.dart';
 import 'features/collaboration/presentation/join_room_screen.dart';
-import 'features/home/presentation/home_screen.dart';
 import 'features/home/presentation/project_route_screen.dart';
+import 'features/notes/presentation/notes_route_screen.dart';
+import 'features/notes/presentation/notes_workspace_screen.dart';
+import 'features/notes/presentation/notes_graph_screen.dart';
+import 'features/notes/presentation/notes_trash_screen.dart';
+import 'features/notes/presentation/notes_templates_screen.dart';
+import 'features/notes/presentation/notes_canvas_screen.dart';
 import 'features/capture/domain/capture_canvas_handoff.dart';
+import 'features/capture/presentation/capture_inbox_panel.dart';
 import 'features/settings/presentation/settings_screen.dart';
 import 'features/meeting/presentation/pre_join_screen.dart';
 import 'features/meeting/presentation/meeting_screen.dart';
 import 'app/widgets/route_error_screen.dart';
 import 'app/widgets/desktop_window_title_bar.dart';
+
+class _CaptureInboxRouteScreen extends StatelessWidget {
+  const _CaptureInboxRouteScreen();
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Capture Inbox')),
+    body: SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: const CaptureInboxPanel(),
+          ),
+        ),
+      ),
+    ),
+  );
+}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -203,11 +229,10 @@ final _router = GoRouter(
       },
       builder: (context, state) => const GuestCanvasRouteScreen(),
     ),
+    GoRoute(path: '/library', redirect: (context, state) => '/'),
     GoRoute(
-      path: '/library',
-      redirect: (context, state) =>
-          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
-      builder: (context, state) => const HomeScreen(),
+      path: '/capture',
+      builder: (context, state) => const _CaptureInboxRouteScreen(),
     ),
     GoRoute(
       path: '/canvas/save',
@@ -224,6 +249,57 @@ final _router = GoRouter(
       path: '/settings/:section',
       builder: (context, state) =>
           SettingsScreen(section: state.pathParameters['section']),
+    ),
+    GoRoute(
+      path: '/notes/canvas',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) =>
+          NotesCanvasScreen(projectId: state.uri.queryParameters['projectId']),
+    ),
+    GoRoute(
+      path: '/notes/canvas/:boardId',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) => NotesCanvasScreen(
+        boardId: state.pathParameters['boardId'],
+        projectId: state.uri.queryParameters['projectId'],
+      ),
+    ),
+    GoRoute(
+      path: '/notes/templates',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) => NotesTemplatesScreen(
+        projectId: state.uri.queryParameters['projectId'],
+      ),
+    ),
+    GoRoute(
+      path: '/notes/trash',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) => const NotesTrashScreen(),
+    ),
+    GoRoute(
+      path: '/notes/graph',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) => const NotesGraphScreen(),
+    ),
+    GoRoute(
+      path: '/notes',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) => const NotesWorkspaceScreen(),
+    ),
+    GoRoute(
+      path: '/notes/:noteId',
+      redirect: (context, state) =>
+          _hasActiveSupabaseSession() ? null : _authRedirectFor(state),
+      builder: (context, state) => NotesRouteScreen(
+        noteId: state.pathParameters['noteId'] ?? '',
+        anchorFragment: state.uri.queryParameters['anchor'],
+      ),
     ),
     GoRoute(
       path: '/project/:projectId',

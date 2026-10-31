@@ -15,6 +15,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 import 'package:varian/app/responsive.dart';
 import 'package:varian/app/theme.dart';
+import 'package:varian/app/localization/app_localizations.dart';
 import 'package:varian/app/theme_mode_provider.dart';
 import 'package:varian/app/widgets/ui_primitives.dart';
 import 'package:varian/data/local/local_storage_service.dart';
@@ -147,6 +148,8 @@ import 'package:varian/features/history/history_provider.dart';
 import 'package:varian/features/history/snapshot_manager.dart';
 import 'package:varian/features/history/presentation/version_diff_dialog.dart';
 import 'package:varian/features/home/presentation/widgets/backend_settings_dialog.dart';
+import 'package:varian/features/home/presentation/widgets/home_library_widgets.dart'
+    show BulkProjectActionDialog, DeleteProjectDialog, WorkspaceHelpButton;
 import 'package:varian/features/home/presentation/widgets/collaboration_profile_dialog.dart';
 import 'package:varian/features/home/state/home_provider.dart';
 import 'package:varian/features/import/import_merge_planner.dart';
@@ -187,13 +190,22 @@ import 'package:varian/features/canvas/domain/command_palette.dart';
 import 'package:varian/features/canvas/presentation/widgets/canvas_command_palette.dart';
 import 'package:varian/features/templates/data/diagram_templates.dart';
 import 'package:varian/features/templates/domain/project_template.dart';
+import 'package:varian/features/templates/presentation/template_picker_dialog.dart';
+import 'package:varian/features/templates/presentation/project_template_wizard_dialog.dart';
+import 'package:varian/features/onboarding/presentation/onboarding_dialog.dart';
 import 'package:varian/features/templates/presentation/project_template_save_dialog.dart';
 import 'package:varian/features/canvas/presentation/widgets/inspector_panel.dart';
 import 'package:varian/features/canvas/presentation/widgets/layers_panel.dart';
+import 'package:varian/features/auth/presentation/auth_screen.dart';
+import 'package:varian/features/auth/state/auth_provider.dart';
+import 'package:varian/features/notes/state/workspace_notes_provider.dart';
+import 'package:varian/features/onboarding/state/onboarding_provider.dart';
 import 'package:varian/features/canvas/presentation/widgets/panel_visibility_toggle.dart';
 import 'package:varian/features/canvas/presentation/widgets/toolbar.dart';
 import 'package:varian/features/canvas/presentation/widgets/viewport_bookmarks_dialog.dart';
 import 'package:varian/features/canvas/presentation/widgets/vector_path_tools_dialog.dart';
+
+enum ProjectSort { lastModified, name, created }
 
 enum _DocumentRestoreMode { inPlace, copy }
 
@@ -297,6 +309,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
   late CanvasEditorPanelController _panelController;
   bool _ownsPanelController = false;
   final FocusNode _aiPromptFocusNode = FocusNode();
+  bool _showAiComposer = true;
   String _documentTitle = '';
   bool _editingDocumentTitle = false;
   final TextEditingController _documentTitleController =
@@ -425,28 +438,37 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
   Timer? _semanticIndexSyncTimer;
   bool _semanticIndexSyncInFlight = false;
   bool _semanticIndexSyncQueued = false;
+  ProjectStatus _workspaceProjectStatus = ProjectStatus.active;
+  ProjectSort _workspaceProjectSort = ProjectSort.lastModified;
+  final TextEditingController _workspaceProjectSearchController =
+      TextEditingController();
+  String _workspaceProjectQuery = '';
   late final TransientMediaSourceResolver _mediaSourceResolver;
   late final PortableAssetCollector _portableAssetCollector;
   late final CanvasImageCache _imageCache;
 
   bool get _showLayers => _panelController.showLayers;
   bool get _showInspector => _panelController.showInspector;
+  bool get _showWorkspace => _panelController.showWorkspace;
+
+  CollaborationSessionController? get _activeCollaborationSession =>
+      _collaborationSession;
 
   bool get _collaborationReadOnly {
     if (widget.readOnly) return true;
-    final session = _collaborationSession;
+    final session = _activeCollaborationSession;
     return session?.isStarted == true && !session!.canEditCanvas;
   }
 
   bool get _collaborationCanComment {
     if (widget.readOnly) return false;
-    final session = _collaborationSession;
+    final session = _activeCollaborationSession;
     return session == null || !session.isStarted || session.canComment;
   }
 
   bool get _collaborationCanManageRoom {
     if (widget.readOnly) return false;
-    final session = _collaborationSession;
+    final session = _activeCollaborationSession;
     if (session?.isStarted == true) return session!.permissions.canManageRoom;
     final role = widget.collaborationRole;
     return role == null || CollaborationPermissions(role).canManageRoom;
@@ -516,6 +538,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       _panelController = CanvasEditorPanelController(
         initialShowLayers: widget.services.showLayersByDefault,
         initialShowInspector: !widget.services.showProjectHeader,
+        initialShowWorkspace: widget.services.showProjectHeader,
       );
       _ownsPanelController = true;
     } else {
@@ -532,6 +555,15 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
   @override
   void initState() {
     super.initState();
+    if (widget.services.enableCollaboration) {
+      _collaborationSession = ref.read(
+        collaborationSessionProvider(widget.projectId).notifier,
+      );
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(ref.read(homeProjectsProvider.notifier).loadProjects());
+    });
     final artifactStores = ref.read(artifactStoreBundleProvider);
     _imageArtifactStore =
         widget.services.imageArtifactStore ?? artifactStores.imageArtifactStore;
@@ -561,6 +593,24 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       activeProjectId: widget.projectId,
     );
     _configurePanelController(widget.panelController);
+    ref.listenManual<WorkspaceNotesState>(workspaceNotesProvider, (_, next) {
+      final activeTab = ref.read(activeDocumentTabProvider);
+      final user = ref.read(authUserProvider).asData?.value;
+      final nextAccountId = user == null || user.isAnonymous ? null : user.id;
+      if (activeTab?.isNote == true &&
+          (activeTab?.ownerAccountId != next.accountId ||
+              activeTab?.ownerAccountId != nextAccountId)) {
+        ref.read(activeDocumentTabProvider.notifier).state = null;
+      }
+    }, fireImmediately: true);
+    ref.listenManual(authUserProvider, (_, next) {
+      final activeTab = ref.read(activeDocumentTabProvider);
+      final user = next.asData?.value;
+      final accountId = user == null || user.isAnonymous ? null : user.id;
+      if (activeTab?.isNote == true && activeTab?.ownerAccountId != accountId) {
+        ref.read(activeDocumentTabProvider.notifier).state = null;
+      }
+    }, fireImmediately: true);
     ref.listenManual<CanvasPanelPreferences>(
       canvasPanelPreferencesProvider,
       (_, next) => _closeDisabledPanels(next),
@@ -720,7 +770,14 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       }
       await _loadCanvasNavigation(documentNavigation: documentNavigation);
       if (!mounted) return;
-      if (widget.services.enableCollaboration) _initCollaboration();
+      final handoff = widget.captureHandoff;
+      final isLocalCaptureHandoffTarget =
+          handoff != null &&
+          handoff.projectId == widget.projectId &&
+          _canEditCaptureTarget();
+      if (widget.services.enableCollaboration && !isLocalCaptureHandoffTarget) {
+        _initCollaboration();
+      }
       if (shouldInitAutosave) {
         _autosaveController?.init(
           widget.projectId,
@@ -731,7 +788,6 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
           scheduleSave: false,
         );
       }
-      final handoff = widget.captureHandoff;
       if (handoff != null) {
         final accountId = ref.read(supabaseSyncServiceProvider).currentUserId;
         final accepted = handoff.consume(
@@ -1436,10 +1492,12 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
   void _closeDisabledPanels(CanvasPanelPreferences preferences) {
     final closeLayers = !preferences.showLayersButton && _showLayers;
     final closeInspector = !preferences.showInspectorButton && _showInspector;
-    if (!closeLayers && !closeInspector) return;
+    final closeWorkspace = !preferences.showWorkspaceButton && _showWorkspace;
+    if (!closeLayers && !closeInspector && !closeWorkspace) return;
 
     if (closeLayers) _panelController.setLayers(false);
     if (closeInspector) _panelController.setInspector(false);
+    if (closeWorkspace) _panelController.setWorkspace(false);
   }
 
   void _setPanelButtonEnabled({
@@ -1470,6 +1528,15 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
         .setInspectorButtonEnabled,
   );
 
+  void _setWorkspaceButtonEnabled(bool enabled) => _setPanelButtonEnabled(
+    enabled: enabled,
+    isOpen: _showWorkspace,
+    closePanel: () => _panelController.setWorkspace(false),
+    persist: ref
+        .read(canvasPanelPreferencesProvider.notifier)
+        .setWorkspaceButtonEnabled,
+  );
+
   bool _usesCompactEditorLayout(BuildContext context) =>
       MediaQuery.sizeOf(context).width < AppBreakpoints.expanded;
 
@@ -1494,18 +1561,1247 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
     _panelController.setInspector(next);
     if (next) {
       _panelController.setLayers(false);
+      _panelController.setWorkspace(false);
+    }
+  }
+
+  void _openWorkspacePanel(BuildContext context) {
+    _panelController.setWorkspace(true);
+    if (_usesCompactEditorLayout(context)) {
+      _panelController.setLayers(false);
+      _panelController.setInspector(false);
+    }
+  }
+
+  void _closeWorkspacePanel(BuildContext context) {
+    _panelController.setWorkspace(false);
+    if (_usesCompactEditorLayout(context)) {
+      _panelController.setLayers(true);
+    }
+  }
+
+  Future<void> _createCanvasFromWorkspace(BuildContext context) async {
+    final project = await ref
+        .read(homeProjectsProvider.notifier)
+        .createProject('Untitled Doc');
+    if (!mounted || !context.mounted) return;
+    final tab = OpenDocumentTab(projectId: project.id, name: project.name);
+    await ref.read(activeDocumentTabControllerProvider).select(tab);
+    if (!mounted || !context.mounted) return;
+    if (widget.onSelectDocument case final onSelect?) {
+      await onSelect(context, tab);
+    } else {
+      GoRouter.maybeOf(
+        context,
+      )?.go('/project/${Uri.encodeComponent(project.id)}');
+    }
+  }
+
+  Future<void> _createBlankNote(BuildContext context) async {
+    final accountId = ref.read(workspaceNotesProvider).accountId;
+    if (accountId == null) {
+      _panelController.setWorkspace(true);
+      showUiToast(
+        context,
+        'Sign in to create private Notes.',
+        variant: UiToastVariant.warning,
+      );
+      return;
+    }
+    final note = await ref.read(workspaceNotesProvider.notifier).createNote();
+    if (!mounted || !context.mounted) return;
+    if (note == null) {
+      final notes = ref.read(workspaceNotesProvider);
+      final cloudReady = ref.read(supabaseClientProvider) != null;
+      showUiToast(
+        context,
+        workspaceNotesFailureMessage(
+          notes.error,
+          accountId: notes.accountId,
+          cloudReady: cloudReady,
+        ),
+        variant: notes.accountId == null
+            ? UiToastVariant.warning
+            : UiToastVariant.error,
+      );
+      return;
+    }
+    final user = ref.read(authUserProvider).asData?.value;
+    if (note.ownerUserId != accountId ||
+        ref.read(workspaceNotesProvider).accountId != accountId ||
+        user?.id != accountId ||
+        user?.isAnonymous != false) {
+      showUiToast(
+        context,
+        'Sign in to create private Notes.',
+        variant: UiToastVariant.warning,
+      );
+      return;
+    }
+    final tab = OpenDocumentTab.note(note);
+    await ref.read(activeDocumentTabControllerProvider).select(tab);
+    if (!context.mounted) return;
+    GoRouter.maybeOf(context)?.push('/notes/${Uri.encodeComponent(note.id)}');
+  }
+
+  Future<void> _openSavedNote(BuildContext context) async {
+    if (ref.read(workspaceNotesProvider).accountId == null) {
+      _panelController.setWorkspace(true);
+      return;
+    }
+    GoRouter.maybeOf(context)?.push('/notes');
+  }
+
+  Future<void> _openSavedCanvas(BuildContext context) async {
+    final projects = await ref.read(localStorageServiceProvider).getProjects();
+    if (!context.mounted) return;
+    final available = projects
+        .where((project) => project.status != ProjectStatus.trashed)
+        .toList(growable: false);
+    if (available.isEmpty) {
+      showUiToast(context, 'No saved Canvas documents yet.');
+      return;
+    }
+    final selected = await showDialog<LocalProjectMetadata>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Open saved Canvas'),
+        children: [
+          for (final project in available)
+            SimpleDialogOption(
+              key: ValueKey('saved-canvas-${project.id}'),
+              onPressed: () => Navigator.of(dialogContext).pop(project),
+              child: Text(project.name),
+            ),
+        ],
+      ),
+    );
+    if (!context.mounted || selected == null) return;
+    await widget.onSelectDocument?.call(
+      context,
+      OpenDocumentTab(projectId: selected.id, name: selected.name),
+    );
+  }
+
+  Future<void> _selectTypedTab(
+    BuildContext context,
+    OpenDocumentTab tab,
+  ) async {
+    if (tab.isCanvas) {
+      await ref.read(activeDocumentTabControllerProvider).select(tab);
+      if (!context.mounted) return;
+      await widget.onSelectDocument?.call(context, tab);
+      return;
+    }
+    final accountId = ref.read(workspaceNotesProvider).accountId;
+    if (accountId == null || tab.ownerAccountId != accountId) return;
+    final note = await ref
+        .read(workspaceNotesProvider.notifier)
+        .openNote(tab.documentId);
+    if (!mounted ||
+        note == null ||
+        note.ownerUserId != tab.ownerAccountId ||
+        ref.read(workspaceNotesProvider).accountId != accountId) {
+      return;
+    }
+    await ref
+        .read(activeDocumentTabControllerProvider)
+        .select(OpenDocumentTab.note(note));
+    if (!context.mounted) return;
+    GoRouter.maybeOf(context)?.push('/notes/${Uri.encodeComponent(note.id)}');
+  }
+
+  Future<void> _closeTypedTab(
+    BuildContext context,
+    OpenDocumentTab tab,
+    OpenDocumentTab? replacement,
+    bool active,
+  ) async {
+    if (tab.isCanvas) {
+      await widget.onCloseDocument?.call(context, tab, replacement, active);
+      return;
+    }
+    await ref.read(openNoteTabsProvider.notifier).close(tab.documentId);
+    ref.read(activeDocumentTabControllerProvider).clearIfActive(tab);
+    if (!active || !context.mounted) return;
+    if (replacement == null) {
+      final metadata = await ref
+          .read(localStorageServiceProvider)
+          .getProjects();
+      final canvas = metadata
+          .where((project) => project.status != ProjectStatus.trashed)
+          .firstOrNull;
+      if (canvas != null && context.mounted) {
+        await widget.onSelectDocument?.call(
+          context,
+          OpenDocumentTab(projectId: canvas.id, name: canvas.name),
+        );
+      }
+    } else {
+      await _selectTypedTab(context, replacement);
+    }
+  }
+
+  Widget _buildWorkspacePanel(BuildContext context, {required double width}) {
+    final auth = ref.watch(authUserProvider);
+    final notes = ref.watch(workspaceNotesProvider);
+    final notesCloudReady = ref.watch(supabaseClientProvider) != null;
+    final tokens = context.appTokens;
+    final user = auth.asData?.value;
+    final signedIn = user != null && !user.isAnonymous;
+    String statusLabel(ProjectStatus status) {
+      final copy = CreativeStudioLocalizations.of(context);
+      return switch (status) {
+        ProjectStatus.active => copy.homeStatusActive,
+        ProjectStatus.archived => copy.homeStatusArchived,
+        ProjectStatus.trashed => copy.homeStatusTrash,
+      };
+    }
+
+    return Container(
+      key: const ValueKey('canvas-workspace-panel'),
+      width: width,
+      decoration: BoxDecoration(
+        color: tokens.panel,
+        border: Border(
+          right: BorderSide(color: tokens.panelBorder, width: AppBorder.thin),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Workspace',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                  if (signedIn) const WorkspaceHelpButton(),
+                  if (signedIn)
+                    IconButton(
+                      key: const ValueKey('workspace-sign-out'),
+                      tooltip: 'Sign out',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () =>
+                          unawaited(_signOutFromWorkspace(context)),
+                      icon: const Icon(Icons.logout, size: 18),
+                    ),
+                  IconButton(
+                    key: const ValueKey('workspace-panel-close'),
+                    tooltip: 'Hide Workspace',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _closeWorkspacePanel(context),
+                    icon: const Icon(Icons.close, size: 18),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Divider(height: 1, color: tokens.panelBorder),
+          if (!signedIn)
+            Expanded(
+              child: AuthScreen(
+                embedded: true,
+                onAuthenticated: () {
+                  if (mounted) {
+                    unawaited(
+                      ref.read(homeProjectsProvider.notifier).loadProjects(),
+                    );
+                    setState(() {});
+                  }
+                },
+                onClose: () => _closeWorkspacePanel(context),
+              ),
+            )
+          else ...[
+            SizedBox(
+              height: 44,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.start,
+                  children: [
+                    IconButton(
+                      key: const ValueKey('workspace-refresh-projects'),
+                      tooltip: 'Refresh Canvas',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => unawaited(
+                        ref.read(homeProjectsProvider.notifier).loadProjects(),
+                      ),
+                      icon: const Icon(Icons.refresh, size: 18),
+                    ),
+                    IconButton(
+                      key: const ValueKey('workspace-capture-inbox'),
+                      tooltip: 'Capture Inbox',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () =>
+                          unawaited(_openWorkspaceCaptureInbox(context)),
+                      icon: const Icon(Icons.inbox_outlined, size: 18),
+                    ),
+                    PopupMenuButton<String>(
+                      key: const ValueKey('workspace-global-menu'),
+                      tooltip: 'Workspace options',
+                      icon: const Icon(Icons.more_vert, size: 18),
+                      onSelected: (action) {
+                        switch (action) {
+                          case 'join':
+                            context.push('/join');
+                          case 'capture_inbox':
+                            unawaited(_openWorkspaceCaptureInbox(context));
+                          case 'backend':
+                            showUiDialog(
+                              context: context,
+                              builder: (_) => const BackendSettingsDialog(),
+                            );
+                          case 'profile':
+                            showCollaborationProfileDialog(
+                              context,
+                              projectId: widget.projectId,
+                            );
+                          case 'auth':
+                            context.push('/auth');
+                          case 'sign_out':
+                            unawaited(_signOutFromWorkspace(context));
+                        }
+                      },
+                      itemBuilder: (context) {
+                        final copy = CreativeStudioLocalizations.of(context);
+                        return [
+                          PopupMenuItem(
+                            value: 'join',
+                            child: Text(copy.homeJoinCollaborationRoom),
+                          ),
+                          PopupMenuItem(
+                            value: 'backend',
+                            child: Text(copy.homeBackendIntegrations),
+                          ),
+                          PopupMenuItem(
+                            value: 'profile',
+                            child: Text(copy.homeEditCollaborationProfile),
+                          ),
+                          PopupMenuItem(
+                            value: 'sign_out',
+                            child: Text(copy.homeSignOut),
+                          ),
+                        ];
+                      },
+                    ),
+                    const UiThemeModeButton(),
+                  ],
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.xs,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Canvas',
+                          style: Theme.of(context).textTheme.labelLarge
+                              ?.copyWith(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      PopupMenuButton<ProjectStatus>(
+                        key: const ValueKey('workspace-canvas-status-menu'),
+                        tooltip: 'Canvas status',
+                        initialValue: _workspaceProjectStatus,
+                        onSelected: (status) =>
+                            setState(() => _workspaceProjectStatus = status),
+                        itemBuilder: (context) => [
+                          for (final status in ProjectStatus.values)
+                            PopupMenuItem(
+                              value: status,
+                              child: Text(statusLabel(status)),
+                            ),
+                        ],
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: AppSpacing.sm,
+                            vertical: AppSpacing.xs,
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                statusLabel(_workspaceProjectStatus),
+                                style: Theme.of(context).textTheme.labelSmall
+                                    ?.copyWith(color: tokens.textMuted),
+                              ),
+                              const SizedBox(width: AppSpacing.xxs),
+                              const Icon(Icons.expand_more, size: 16),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: AppSpacing.xxs),
+                  Row(
+                    children: [
+                      IconButton(
+                        key: const ValueKey('workspace-canvas-create'),
+                        tooltip: 'Create Canvas',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () =>
+                            unawaited(_createCanvasFromWorkspace(context)),
+                        icon: const Icon(Icons.add, size: 19),
+                      ),
+                      IconButton(
+                        key: const ValueKey('workspace-canvas-template'),
+                        tooltip: 'Create from template',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () =>
+                            unawaited(_showWorkspaceTemplatePicker(context)),
+                        icon: const Icon(Icons.account_tree_outlined, size: 18),
+                      ),
+                      PopupMenuButton<ProjectSort>(
+                        key: const ValueKey('workspace-canvas-sort'),
+                        tooltip: CreativeStudioLocalizations.of(
+                          context,
+                        ).homeSortLabel,
+                        initialValue: _workspaceProjectSort,
+                        onSelected: (sort) =>
+                            setState(() => _workspaceProjectSort = sort),
+                        itemBuilder: (context) => [
+                          PopupMenuItem(
+                            value: ProjectSort.lastModified,
+                            child: Text(
+                              CreativeStudioLocalizations.of(
+                                context,
+                              ).homeSortLastModified,
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: ProjectSort.name,
+                            child: Text(
+                              CreativeStudioLocalizations.of(
+                                context,
+                              ).homeSortName,
+                            ),
+                          ),
+                          PopupMenuItem(
+                            value: ProjectSort.created,
+                            child: Text(
+                              CreativeStudioLocalizations.of(
+                                context,
+                              ).homeSortCreated,
+                            ),
+                          ),
+                        ],
+                        icon: const Icon(Icons.sort, size: 18),
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        key: const ValueKey('workspace-canvas-bulk-trash'),
+                        tooltip:
+                            _workspaceProjectStatus == ProjectStatus.trashed
+                            ? 'Empty Canvas trash'
+                            : 'Move all Canvas to trash',
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => unawaited(
+                          _confirmWorkspaceCanvasBulkAction(context),
+                        ),
+                        icon: Icon(
+                          _workspaceProjectStatus == ProjectStatus.trashed
+                              ? Icons.delete_forever_outlined
+                              : Icons.delete_outline,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.md),
+              child: UiTextField(
+                key: const ValueKey('workspace-canvas-search'),
+                controller: _workspaceProjectSearchController,
+                hint: 'Search Canvas',
+                prefix: const Icon(Icons.search, size: 18),
+                clearable: true,
+                onChanged: (value) =>
+                    setState(() => _workspaceProjectQuery = value),
+              ),
+            ),
+            Expanded(flex: 2, child: _buildWorkspaceCanvasList(context)),
+            Divider(height: 1, color: tokens.panelBorder),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.md,
+                AppSpacing.sm,
+                AppSpacing.md,
+                AppSpacing.xs,
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Notes',
+                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                  if (notes.accountId == null)
+                    const Tooltip(
+                      message: 'Private Notes require a signed-in account.',
+                      child: Icon(Icons.cloud_off_outlined, size: 16),
+                    )
+                  else if (notes.error != null)
+                    Tooltip(
+                      message: workspaceNotesFailureMessage(
+                        notes.error,
+                        accountId: notes.accountId,
+                        cloudReady: notesCloudReady,
+                      ),
+                      child: const Icon(Icons.cloud_off_outlined, size: 16),
+                    )
+                  else if (notes.loading)
+                    const Tooltip(
+                      message: 'Loading private Notes from cloud.',
+                      child: Icon(Icons.cloud_sync_outlined, size: 16),
+                    )
+                  else
+                    const Tooltip(
+                      message: 'Private Notes are stored in cloud.',
+                      child: Icon(Icons.cloud_done_outlined, size: 16),
+                    ),
+                  IconButton(
+                    key: const ValueKey('workspace-notes-create'),
+                    tooltip: 'Create Note',
+                    onPressed: () => unawaited(_createBlankNote(context)),
+                    icon: const Icon(Icons.add, size: 18),
+                  ),
+                  IconButton(
+                    key: const ValueKey('workspace-notes-refresh'),
+                    tooltip: 'Refresh Notes',
+                    onPressed: () => unawaited(
+                      ref.read(workspaceNotesProvider.notifier).load(),
+                    ),
+                    icon: const Icon(Icons.refresh, size: 18),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 2,
+              child: notes.loading
+                  ? const Center(
+                      child: UiProgressIndicator(
+                        semanticsLabel: 'Loading Notes',
+                      ),
+                    )
+                  : notes.accountId == null
+                  ? Center(
+                      child: Text(
+                        'Sign in to access private Notes.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: tokens.textMuted,
+                        ),
+                      ),
+                    )
+                  : notes.error != null
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(AppSpacing.md),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.cloud_off_outlined,
+                              size: 20,
+                              color: tokens.textMuted,
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              'Notes could not be loaded',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: tokens.textMuted),
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            Text(
+                              workspaceNotesFailureMessage(
+                                notes.error,
+                                accountId: notes.accountId,
+                                cloudReady: notesCloudReady,
+                              ),
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: tokens.textMuted),
+                            ),
+                            const SizedBox(height: AppSpacing.xs),
+                            TextButton.icon(
+                              key: const ValueKey('workspace-notes-retry'),
+                              onPressed: () => unawaited(
+                                ref
+                                    .read(workspaceNotesProvider.notifier)
+                                    .load(),
+                              ),
+                              icon: const Icon(Icons.refresh, size: 16),
+                              label: const Text('Retry Notes'),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
+                  : notes.notes.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No Notes yet',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: tokens.textMuted,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: notes.notes.length,
+                      itemBuilder: (context, index) {
+                        final note = notes.notes[index];
+                        return Material(
+                          color: Colors.transparent,
+                          child: ListTile(
+                            key: ValueKey('workspace-note-${note.id}'),
+                            dense: true,
+                            leading: const Icon(
+                              Icons.sticky_note_2_outlined,
+                              size: 18,
+                            ),
+                            title: Text(
+                              note.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            onTap: () => unawaited(
+                              _selectTypedTab(
+                                context,
+                                OpenDocumentTab.note(note),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWorkspaceCanvasList(BuildContext context) {
+    final projects = ref.watch(homeProjectsProvider);
+    final statusProjects =
+        projects.asData?.value
+            .where((project) => project.status == _workspaceProjectStatus)
+            .toList(growable: false) ??
+        const <LocalProjectMetadata>[];
+    final query = _workspaceProjectQuery.trim().toLowerCase();
+    final visibleProjects =
+        statusProjects
+            .where((project) => project.name.toLowerCase().contains(query))
+            .toList()
+          ..sort((a, b) {
+            if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+            return switch (_workspaceProjectSort) {
+              ProjectSort.lastModified => b.updatedAt.compareTo(a.updatedAt),
+              ProjectSort.name => a.name.toLowerCase().compareTo(
+                b.name.toLowerCase(),
+              ),
+              ProjectSort.created => b.createdAt.compareTo(a.createdAt),
+            };
+          });
+    if (projects.isLoading) {
+      return const Center(
+        child: UiProgressIndicator(semanticsLabel: 'Loading Canvas'),
+      );
+    }
+    if (projects.hasError) {
+      return Center(
+        child: TextButton.icon(
+          onPressed: () =>
+              unawaited(ref.read(homeProjectsProvider.notifier).loadProjects()),
+          icon: const Icon(Icons.refresh),
+          label: const Text('Retry Canvas'),
+        ),
+      );
+    }
+    if (visibleProjects.isEmpty) {
+      final emptyText = query.isNotEmpty
+          ? 'No Canvas match “${_workspaceProjectQuery.trim()}”'
+          : switch (_workspaceProjectStatus) {
+              ProjectStatus.active => 'No saved Canvas yet',
+              ProjectStatus.archived => 'No archived Canvas',
+              ProjectStatus.trashed => 'Trash is empty',
+            };
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Text(
+            emptyText,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ),
+      );
+    }
+    final user = ref.watch(authUserProvider).asData?.value;
+    return ListView.builder(
+      itemCount: visibleProjects.length,
+      itemBuilder: (context, index) {
+        final project = visibleProjects[index];
+        final notifier = ref.read(homeProjectsProvider.notifier);
+        final canAdopt =
+            user != null &&
+            !user.isAnonymous &&
+            project.status != ProjectStatus.trashed &&
+            project.cloudOwnerId == null &&
+            !project.cloudDeletionDetached &&
+            !project.isCollaborationRoom &&
+            ref
+                    .watch(homeProjectAdoptionEligibilityProvider(project.id))
+                    .asData
+                    ?.value ==
+                true;
+        return Material(
+          type: MaterialType.transparency,
+          child: ListTile(
+            key: ValueKey('workspace-canvas-${project.id}'),
+            dense: true,
+            leading: Icon(
+              _workspaceProjectStatus == ProjectStatus.trashed
+                  ? Icons.delete_outline
+                  : _workspaceProjectStatus == ProjectStatus.archived
+                  ? Icons.archive_outlined
+                  : Icons.dashboard_outlined,
+              size: 18,
+            ),
+            title: Text(
+              project.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: PopupMenuButton<String>(
+              key: ValueKey('workspace-canvas-actions-${project.id}'),
+              tooltip: 'Canvas actions',
+              onSelected: (action) {
+                switch (action) {
+                  case 'adopt':
+                    if (canAdopt) {
+                      unawaited(
+                        _confirmWorkspaceCanvasAdoption(context, project),
+                      );
+                    }
+                  case 'rename':
+                    unawaited(_renameWorkspaceCanvas(context, project));
+                  case 'pin':
+                    unawaited(
+                      _runWorkspaceProjectAction(
+                        context,
+                        () => notifier.togglePinned(project.id),
+                        '${project.isPinned ? 'Unpinned' : 'Pinned'} Canvas',
+                      ),
+                    );
+                  case 'duplicate':
+                    unawaited(
+                      _runWorkspaceProjectAction(
+                        context,
+                        () => notifier.duplicateProject(project.id),
+                        'Canvas duplicated',
+                      ),
+                    );
+                  case 'archive':
+                    unawaited(
+                      _runWorkspaceProjectAction(
+                        context,
+                        () => notifier.archiveProject(project.id),
+                        'Canvas archived',
+                      ),
+                    );
+                  case 'restore':
+                    unawaited(
+                      _runWorkspaceProjectAction(
+                        context,
+                        () => notifier.restoreProject(project.id),
+                        'Canvas restored',
+                      ),
+                    );
+                  case 'trash':
+                    unawaited(_confirmWorkspaceCanvasDelete(context, project));
+                  case 'purge':
+                    unawaited(
+                      _confirmWorkspaceCanvasDelete(
+                        context,
+                        project,
+                        permanent: true,
+                      ),
+                    );
+                }
+              },
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'rename',
+                  child: Text(
+                    CreativeStudioLocalizations.of(
+                      context,
+                    ).homeProjectRenameAction,
+                  ),
+                ),
+                if (project.status == ProjectStatus.trashed) ...[
+                  PopupMenuItem(
+                    value: 'purge',
+                    child: Text(
+                      CreativeStudioLocalizations.of(
+                        context,
+                      ).homeProjectDeletePermanentlyAction,
+                    ),
+                  ),
+                ] else ...[
+                  if (project.cloudOwnerId == null &&
+                      !project.isCollaborationRoom)
+                    PopupMenuItem(
+                      value: 'adopt',
+                      child: Text(
+                        CreativeStudioLocalizations.of(
+                          context,
+                        ).homeProjectAdoptAction,
+                      ),
+                    ),
+                  PopupMenuItem(
+                    value: 'pin',
+                    child: Text(
+                      project.isPinned
+                          ? CreativeStudioLocalizations.of(
+                              context,
+                            ).homeProjectUnpinAction
+                          : CreativeStudioLocalizations.of(
+                              context,
+                            ).homeProjectPinAction,
+                    ),
+                  ),
+                  if (project.status == ProjectStatus.active)
+                    PopupMenuItem(
+                      value: 'archive',
+                      child: Text(
+                        CreativeStudioLocalizations.of(
+                          context,
+                        ).homeProjectArchiveAction,
+                      ),
+                    ),
+                  if (project.status == ProjectStatus.archived)
+                    PopupMenuItem(
+                      key: ValueKey('workspace-canvas-restore-${project.id}'),
+                      value: 'restore',
+                      child: Text(
+                        CreativeStudioLocalizations.of(
+                          context,
+                        ).homeProjectRestoreAction,
+                      ),
+                    ),
+                  PopupMenuItem(
+                    value: 'duplicate',
+                    child: Text(
+                      CreativeStudioLocalizations.of(
+                        context,
+                      ).homeProjectDuplicateAction,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: 'trash',
+                    child: Text(
+                      CreativeStudioLocalizations.of(
+                        context,
+                      ).homeProjectDeleteAction,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            onTap: project.status == ProjectStatus.trashed
+                ? null
+                : () {
+                    final tab = OpenDocumentTab(
+                      projectId: project.id,
+                      name: project.name,
+                    );
+                    if (widget.onSelectDocument case final onSelect?) {
+                      unawaited(onSelect(context, tab));
+                    } else {
+                      GoRouter.maybeOf(
+                        context,
+                      )?.go('/project/${Uri.encodeComponent(project.id)}');
+                    }
+                  },
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _confirmWorkspaceCanvasAdoption(
+    BuildContext context,
+    LocalProjectMetadata project,
+  ) async {
+    final user = ref.read(authUserProvider).asData?.value;
+    final accountId = user?.id;
+    final copy = CreativeStudioLocalizations.of(context);
+    if (accountId == null || user?.isAnonymous != false) {
+      showUiToast(
+        context,
+        copy.homeProjectAdoptRequiresSignIn,
+        variant: UiToastVariant.error,
+      );
+      return;
+    }
+    final confirmed = await showUiDialog<bool>(
+      context: context,
+      builder: (dialogContext) => UiDialog(
+        semanticsLabel: copy.homeProjectAdoptTitle,
+        builder: (context, style) => Padding(
+          padding: AppResponsive.dialogPadding(context),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(copy.homeProjectAdoptTitle, style: style.titleTextStyle),
+              const SizedBox(height: AppSpacing.md),
+              Text(copy.homeProjectAdoptDescription(project.name)),
+              const SizedBox(height: AppSpacing.lg),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: AppSpacing.sm,
+                children: [
+                  UiButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    variant: UiButtonVariant.ghost,
+                    child: Text(copy.cancel.toUpperCase()),
+                  ),
+                  UiButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(true),
+                    prefix: const Icon(Icons.cloud_upload_outlined),
+                    child: Text(copy.homeProjectAdoptConfirm),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (!context.mounted || confirmed != true) return;
+    final currentUser = ref.read(authUserProvider).asData?.value;
+    final currentAccountId =
+        ref.read(supabaseClientProvider)?.auth.currentUser?.id ??
+        ref.read(supabaseClientProvider)?.auth.currentSession?.user.id;
+    if (currentAccountId != accountId ||
+        currentUser?.id != accountId ||
+        currentUser?.isAnonymous != false) {
+      showUiToast(
+        context,
+        copy.homeProjectAdoptRequiresSignIn,
+        variant: UiToastVariant.error,
+      );
+      return;
+    }
+    await _runWorkspaceProjectAction(
+      context,
+      () => ref
+          .read(homeProjectsProvider.notifier)
+          .adoptProjectToCloud(project.id, expectedAccountId: accountId),
+      copy.homeProjectAdoptSuccess,
+    );
+  }
+
+  Future<void> _runWorkspaceProjectAction(
+    BuildContext context,
+    Future<void> Function() action,
+    String successMessage,
+  ) async {
+    try {
+      await action();
+      if (!context.mounted) return;
+      showUiToast(context, successMessage, variant: UiToastVariant.success);
+    } catch (error) {
+      if (!context.mounted) return;
+      showUiToast(
+        context,
+        'Canvas action failed: $error',
+        variant: UiToastVariant.error,
+      );
+    }
+  }
+
+  Future<void> _renameWorkspaceCanvas(
+    BuildContext context,
+    LocalProjectMetadata project,
+  ) async {
+    final controller = TextEditingController(text: project.name);
+    final nextName = await showUiDialog<String>(
+      context: context,
+      builder: (dialogContext) => UiDialog(
+        semanticsLabel: 'Rename Canvas',
+        builder: (context, style) => Padding(
+          padding: AppResponsive.dialogPadding(context),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text('Rename Canvas', style: style.titleTextStyle),
+              const SizedBox(height: AppSpacing.md),
+              UiTextField(
+                key: const ValueKey('workspace-canvas-rename-field'),
+                controller: controller,
+                label: 'Canvas name',
+                autofocus: true,
+                maxLength: 120,
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Wrap(
+                alignment: WrapAlignment.end,
+                spacing: AppSpacing.sm,
+                children: [
+                  UiButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(),
+                    variant: UiButtonVariant.ghost,
+                    child: const Text('Cancel'),
+                  ),
+                  UiButton(
+                    onPressed: () =>
+                        Navigator.of(dialogContext).pop(controller.text.trim()),
+                    child: const Text('Save'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    controller.dispose();
+    if (!context.mounted || nextName == null || nextName.trim().isEmpty) return;
+    await _runWorkspaceProjectAction(
+      context,
+      () => ref
+          .read(homeProjectsProvider.notifier)
+          .renameProject(project.id, nextName),
+      'Canvas renamed',
+    );
+  }
+
+  Future<void> _confirmWorkspaceCanvasBulkAction(BuildContext context) async {
+    final projects =
+        ref
+            .read(homeProjectsProvider)
+            .asData
+            ?.value
+            .where((project) => project.status == _workspaceProjectStatus)
+            .toList(growable: false) ??
+        const <LocalProjectMetadata>[];
+    if (projects.isEmpty) return;
+    final permanent = _workspaceProjectStatus == ProjectStatus.trashed;
+    final confirmed = await showUiDialog<bool>(
+      context: context,
+      builder: (dialogContext) => BulkProjectActionDialog(
+        status: _workspaceProjectStatus,
+        count: projects.length,
+        permanent: permanent,
+        onCancel: () => Navigator.of(dialogContext).pop(false),
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
+      ),
+    );
+    if (!context.mounted || confirmed != true) return;
+    final notifier = ref.read(homeProjectsProvider.notifier);
+    await _runWorkspaceProjectAction(
+      context,
+      permanent
+          ? () => notifier.purgeProjects(projects.map((project) => project.id))
+          : () => notifier.moveProjectsToTrash(
+              projects.map((project) => project.id),
+            ),
+      permanent ? 'Canvas trash emptied' : 'Canvas moved to Trash',
+    );
+  }
+
+  Future<void> _confirmWorkspaceCanvasDelete(
+    BuildContext context,
+    LocalProjectMetadata project, {
+    bool permanent = false,
+  }) async {
+    final confirmed = await showUiDialog<bool>(
+      context: context,
+      builder: (dialogContext) => DeleteProjectDialog(
+        project: project,
+        permanent: permanent,
+        onCancel: () => Navigator.of(dialogContext).pop(false),
+        onConfirm: () => Navigator.of(dialogContext).pop(true),
+      ),
+    );
+    if (!context.mounted || confirmed != true) return;
+    final notifier = ref.read(homeProjectsProvider.notifier);
+    await _runWorkspaceProjectAction(
+      context,
+      permanent
+          ? () => notifier.purgeProject(project.id)
+          : () => notifier.deleteProject(project.id),
+      permanent ? 'Canvas permanently deleted' : 'Canvas moved to Trash',
+    );
+  }
+
+  Future<void> _showWorkspaceTemplatePicker(BuildContext context) async {
+    await showUiDialog<void>(
+      context: context,
+      builder: (_) => TemplatePickerDialog(
+        onSelected: (template) =>
+            unawaited(_createWorkspaceTemplateProject(context, template.id)),
+        onOpenWizard: () => unawaited(_showWorkspaceTemplateWizard(context)),
+      ),
+    );
+  }
+
+  Future<void> _showWorkspaceTemplateWizard(BuildContext context) async {
+    final storage = ref.read(localStorageServiceProvider);
+    ProjectTemplateCatalog catalog;
+    try {
+      catalog = await storage.loadProjectTemplates('local');
+    } catch (_) {
+      catalog = ProjectTemplateCatalog.withBuiltIns();
+    }
+    if (!context.mounted) return;
+    final request = await showUiDialog<StarterProjectRequest>(
+      context: context,
+      builder: (_) => ProjectTemplateWizardDialog(catalog: catalog),
+    );
+    if (!context.mounted || request == null) return;
+    final template = catalog.templates
+        .where((item) => item.id == request.templateId)
+        .firstOrNull;
+    final templateId = template?.diagramTemplateId;
+    await _createWorkspaceTemplateProject(
+      context,
+      templateId ?? 'flowchart',
+      projectName: request.projectName,
+    );
+  }
+
+  Future<void> _signOutFromWorkspace(BuildContext context) async {
+    try {
+      await ref.read(authServiceProvider).signOut();
+    } catch (error) {
+      if (!context.mounted) return;
+      showUiToast(
+        context,
+        AuthService.friendlyError(error),
+        variant: UiToastVariant.error,
+      );
+    }
+  }
+
+  Future<void> _openWorkspaceCaptureInbox(BuildContext context) async {
+    GoRouter.maybeOf(context)?.push('/capture');
+  }
+
+  Future<void> _resumeWorkspaceOnboarding(BuildContext context) async {
+    await ref.read(onboardingProvider.notifier).resume();
+    if (!context.mounted) return;
+    await showOnboardingDialog(context);
+  }
+
+  Future<void> _createWorkspaceTemplateProject(
+    BuildContext context,
+    String templateId, {
+    String? projectName,
+  }) async {
+    try {
+      final template = DiagramTemplates.listTemplates()
+          .where((candidate) => candidate.id == templateId)
+          .firstOrNull;
+      if (template == null) {
+        await _createCanvasFromWorkspace(context);
+        return;
+      }
+      final project = await ref
+          .read(homeProjectsProvider.notifier)
+          .createProject(projectName ?? template.name);
+      final instance = DiagramTemplates.instantiate(templateId);
+      await ref
+          .read(localStorageServiceProvider)
+          .saveDocument(
+            CanvasDocument(
+              projectId: project.id,
+              nodes: instance.nodes,
+              edges: instance.edges,
+              updatedAt: DateTime.now(),
+            ),
+          );
+      if (!mounted || !context.mounted) return;
+      final tab = OpenDocumentTab(projectId: project.id, name: project.name);
+      await ref.read(activeDocumentTabControllerProvider).select(tab);
+      if (!mounted || !context.mounted) return;
+      if (widget.onSelectDocument case final onSelect?) {
+        await onSelect(context, tab);
+      } else {
+        GoRouter.maybeOf(
+          context,
+        )?.go('/project/${Uri.encodeComponent(project.id)}');
+      }
+    } catch (error) {
+      if (context.mounted) {
+        showUiToast(
+          context,
+          'Canvas could not be created: $error',
+          variant: UiToastVariant.error,
+        );
+      }
     }
   }
 
   void _focusAiComposer() {
-    if (!_collaborationReadOnly && widget.services.enableAiStudio) {
-      _aiPromptFocusNode.requestFocus();
+    if (_collaborationReadOnly || !widget.services.enableAiStudio) return;
+    if (!_showAiComposer) {
+      setState(() => _showAiComposer = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _showAiComposer) _aiPromptFocusNode.requestFocus();
+      });
+      return;
     }
+    _aiPromptFocusNode.requestFocus();
+  }
+
+  void _toggleAiComposer() {
+    if (_collaborationReadOnly || !widget.services.enableAiStudio) return;
+    if (_showAiComposer) {
+      _aiPromptFocusNode.unfocus();
+      setState(() => _showAiComposer = false);
+      return;
+    }
+    _focusAiComposer();
   }
 
   void _closeCompactPanels() {
     _panelController.setLayers(false);
     _panelController.setInspector(false);
+    _panelController.setWorkspace(false);
   }
 
   bool _handleKeyEvent(KeyEvent event) {
@@ -1816,6 +3112,18 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       ),
     if (!_collaborationReadOnly) ...[
       UiMenuAction(
+        value: 'workspace',
+        icon: Icons.folder_open_outlined,
+        label: 'Workspace',
+        suffix: PanelVisibilityToggle(
+          id: 'workspace',
+          label: 'Workspace',
+          enabled: panelPreferences.showWorkspaceButton,
+          onChanged: _setWorkspaceButtonEnabled,
+        ),
+        rowInteractive: false,
+      ),
+      UiMenuAction(
         value: 'layers',
         icon: Icons.layers_outlined,
         label: 'Layers',
@@ -1841,17 +3149,29 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       ),
     ] else
       UiMenuAction(
-        value: 'layers',
-        icon: Icons.layers_outlined,
-        label: 'Layers',
+        value: 'workspace',
+        icon: Icons.folder_open_outlined,
+        label: 'Workspace',
         suffix: PanelVisibilityToggle(
-          id: 'layers',
-          label: 'Layers',
-          enabled: panelPreferences.showLayersButton,
-          onChanged: _setLayersButtonEnabled,
+          id: 'workspace',
+          label: 'Workspace',
+          enabled: panelPreferences.showWorkspaceButton,
+          onChanged: _setWorkspaceButtonEnabled,
         ),
         rowInteractive: false,
       ),
+    UiMenuAction(
+      value: 'layers',
+      icon: Icons.layers_outlined,
+      label: 'Layers',
+      suffix: PanelVisibilityToggle(
+        id: 'layers',
+        label: 'Layers',
+        enabled: panelPreferences.showLayersButton,
+        onChanged: _setLayersButtonEnabled,
+      ),
+      rowInteractive: false,
+    ),
     UiMenuAction(
       value: 'theme',
       icon: switch (themeMode) {
@@ -1860,6 +3180,16 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
         ThemeMode.dark => Icons.dark_mode_outlined,
       },
       label: 'Theme: ${themeModeLabel(themeMode)}',
+    ),
+    const UiMenuAction(
+      value: 'capture_inbox',
+      icon: Icons.inbox_outlined,
+      label: 'Capture Inbox',
+    ),
+    const UiMenuAction(
+      value: 'onboarding',
+      icon: Icons.school_outlined,
+      label: 'Resume quick start',
     ),
     const UiMenuAction(
       value: 'backend',
@@ -1944,12 +3274,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       unawaited(openLibrary(context));
       return;
     }
-    final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
-      navigator.pop();
-    } else {
-      GoRouter.maybeOf(context)?.go('/');
-    }
+    GoRouter.maybeOf(context)?.go('/');
   }
 
   Widget _buildDocumentTitle(BuildContext context, AppTokens tokens) {
@@ -2473,6 +3798,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
     _panelController.removeListener(_onPanelControllerChanged);
     if (_ownsPanelController) _panelController.dispose();
     _documentTitleController.dispose();
+    _workspaceProjectSearchController.dispose();
     _documentTitleFocusNode.dispose();
     _editController.dispose();
     _editFocusNode.dispose();
@@ -3245,11 +4571,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
     final headerWidth = MediaQuery.sizeOf(context).width;
     final compactActionKeys = <Key>{
       if (headerWidth >= AppBreakpoints.compact)
-        ValueKey(
-          widget.onOpenProjectLibrary == null
-              ? 'canvas-return-to-dashboard'
-              : 'canvas-open-library',
-        ),
+        const ValueKey('canvas-return-to-dashboard'),
       const ValueKey('canvas-search'),
       if (!_collaborationReadOnly &&
           headerWidth >= AppBreakpoints.compactStatusTabs) ...[
@@ -3262,9 +4584,15 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
         const ValueKey('canvas-zoom-in'),
       ] else
         const ValueKey('canvas-zoom-menu'),
-      if (panelPreferences.showLayersButton)
+      if (headerWidth >= AppBreakpoints.compact &&
+          panelPreferences.showWorkspaceButton)
+        const ValueKey('canvas-panel-toggle-workspace'),
+      if (headerWidth >= AppBreakpoints.compact &&
+          panelPreferences.showLayersButton)
         const ValueKey('canvas-panel-toggle-layers'),
-      if (!_collaborationReadOnly && panelPreferences.showInspectorButton)
+      if (headerWidth >= AppBreakpoints.compact &&
+          !_collaborationReadOnly &&
+          panelPreferences.showInspectorButton)
         const ValueKey('canvas-panel-toggle-inspector'),
       if (headerWidth >= AppBreakpoints.expanded)
         const ValueKey('canvas-settings-menu'),
@@ -3295,33 +4623,53 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
           compactActionsMenuAlways: true,
           overlayHeader: widget.services.showProjectHeader && !focusMode,
           compactActionKeys: compactActionKeys,
-          leadingWidth:
-              panelPreferences.showLayersButton &&
-                  headerWidth >= AppBreakpoints.compact
-              ? AppControlSize.regular * 2 + AppSpacing.sm * 3 + AppSpacing.xs
+          leadingWidth: headerWidth >= AppBreakpoints.compact
+              ? AppControlSize.minimumHitTarget *
+                        ((widget.onOpenProjectLibrary == null ? 1 : 0) +
+                            (panelPreferences.showLayersButton ? 1 : 0) +
+                            (panelPreferences.showWorkspaceButton ? 1 : 0)) +
+                    AppSpacing.xxs *
+                        ((widget.onOpenProjectLibrary == null ? 1 : 0) +
+                            (panelPreferences.showLayersButton ? 1 : 0) +
+                            (panelPreferences.showWorkspaceButton ? 1 : 0)) +
+                    AppSpacing.xs
               : null,
           leading: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              UiIconButton(
-                key: ValueKey(
-                  widget.onOpenProjectLibrary == null
-                      ? 'canvas-return-to-dashboard'
-                      : 'canvas-open-library',
+              if (widget.onOpenProjectLibrary == null)
+                UiIconButton(
+                  key: const ValueKey('canvas-return-to-dashboard'),
+                  icon: Icons.arrow_back,
+                  tooltip: 'Back to Dashboard',
+                  size: UiButtonSize.sm,
+                  onPressed: _returnToDashboard,
                 ),
-                icon: widget.onOpenProjectLibrary == null
-                    ? Icons.arrow_back
-                    : Icons.folder_open_outlined,
-                tooltip: widget.onOpenProjectLibrary == null
-                    ? 'Back to Dashboard'
-                    : 'Project Library',
-                size: UiButtonSize.sm,
-                onPressed: _returnToDashboard,
-              ),
+              if (panelPreferences.showWorkspaceButton)
+                UiIconButton(
+                  key: const ValueKey('canvas-panel-toggle-workspace'),
+                  icon: Icons.folder_open_outlined,
+                  iconWidget: SidebarPanelToggleIcon(
+                    side: SidebarPanelSide.left,
+                    expanded: _showWorkspace,
+                    cue: Icons.workspaces_outlined,
+                  ),
+                  tooltip: _showWorkspace
+                      ? 'Hide Workspace panel'
+                      : 'Show Workspace panel',
+                  selected: _showWorkspace,
+                  onPressed: () => _showWorkspace
+                      ? _closeWorkspacePanel(context)
+                      : _openWorkspacePanel(context),
+                ),
               if (panelPreferences.showLayersButton)
                 UiIconButton(
                   key: const ValueKey('canvas-panel-toggle-layers'),
                   icon: Icons.layers_outlined,
+                  iconWidget: SidebarPanelToggleIcon(
+                    side: SidebarPanelSide.left,
+                    expanded: _showLayers,
+                  ),
                   tooltip: _showLayers
                       ? 'Hide Layers panel'
                       : 'Show Layers panel',
@@ -3351,8 +4699,14 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
                 DocumentBreadcrumbSwitcher(
                   activeProjectId: widget.projectId,
                   onCreateProject: widget.onCreateProject,
+                  onCreateCanvas: widget.onCreateProject,
+                  onCreateNote: _createBlankNote,
+                  onOpenSavedCanvas: _openSavedCanvas,
+                  onOpenSavedNote: _openSavedNote,
                   onSelectDocument: widget.onSelectDocument,
                   onCloseDocument: widget.onCloseDocument,
+                  onSelectTypedTab: _selectTypedTab,
+                  onCloseTypedTab: _closeTypedTab,
                 ),
               if (_collaborationReadOnly && expandedHeader) ...[
                 const SizedBox(width: AppSpacing.md - AppSpacing.xxs),
@@ -3905,6 +5259,10 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
                     unawaited(_openReviewWorkflowDialog());
                   case 'quick_capture':
                     _openQuickCapturePalette();
+                  case 'capture_inbox':
+                    unawaited(_openWorkspaceCaptureInbox(context));
+                  case 'onboarding':
+                    unawaited(_resumeWorkspaceOnboarding(context));
                   case 'asset_library':
                     _openAssetLibrary();
                   case 'design_tokens':
@@ -3938,6 +5296,10 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
               UiIconButton(
                 key: const ValueKey('canvas-panel-toggle-inspector'),
                 icon: Icons.tune_outlined,
+                iconWidget: SidebarPanelToggleIcon(
+                  side: SidebarPanelSide.right,
+                  expanded: _showInspector,
+                ),
                 tooltip: _showInspector
                     ? 'Hide Inspector panel'
                     : 'Show Inspector panel',
@@ -3951,16 +5313,30 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
                   !focusMode &&
                   _showLayers &&
                   panelPreferences.showLayersButton;
+              final workspaceVisible =
+                  !focusMode &&
+                  _showWorkspace &&
+                  panelPreferences.showWorkspaceButton &&
+                  widget.services.showProjectHeader;
               final inspectorVisible =
                   !focusMode &&
                   _showInspector &&
                   panelPreferences.showInspectorButton &&
                   !_collaborationReadOnly;
+              final workspaceInCompactDialog =
+                  workspaceVisible &&
+                  editorConstraints.maxWidth < AppBreakpoints.compact;
+              final workspaceInRail =
+                  workspaceVisible && !workspaceInCompactDialog;
               final panelColumnsWidth =
-                  (layersVisible ? 250.0 : 0) + (inspectorVisible ? 280.0 : 0);
+                  (layersVisible ? 250.0 : 0) +
+                  (workspaceInRail ? 280.0 : 0) +
+                  (inspectorVisible ? 280.0 : 0);
               final compactPanels =
                   editorConstraints.maxWidth < panelColumnsWidth + 420 &&
-                  (layersVisible || inspectorVisible);
+                  (layersVisible || inspectorVisible || workspaceVisible);
+              final isNarrowViewport =
+                  editorConstraints.maxWidth < AppBreakpoints.compact;
               final panelInset =
                   editorConstraints.maxWidth < AppBreakpoints.compact
                   ? AppSpacing.sm
@@ -3992,14 +5368,17 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
                 availablePanelHeight,
                 math.min(420.0, math.max(220.0, preferredPanelHeight)),
               );
+              final canUseAiComposer =
+                  widget.services.enableAiStudio && !_collaborationReadOnly;
               final canvasToolbar = CanvasToolbar(
-                aiActive: false,
-                onAiPressed: widget.services.enableAiStudio
-                    ? _focusAiComposer
-                    : null,
+                aiActive: canUseAiComposer && _showAiComposer,
+                onAiPressed: canUseAiComposer ? _toggleAiComposer : null,
                 onModel3dPressed: _importModel3DFromToolbar,
               );
-              final Widget? compactPanel = widget.services.stackPanelsOnCompact
+              final Widget? compactPanel = workspaceInCompactDialog
+                  ? _buildWorkspacePanel(context, width: compactPanelWidth)
+                  : widget.services.stackPanelsOnCompact &&
+                        editorConstraints.maxWidth < AppBreakpoints.compact
                   ? Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -4070,6 +5449,14 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
                   Positioned.fill(
                     child: Row(
                       children: [
+                        if (workspaceInRail && !compactPanels)
+                          SizedBox(
+                            width: 280,
+                            child: Padding(
+                              padding: EdgeInsets.only(top: panelHeaderInset),
+                              child: _buildWorkspacePanel(context, width: 280),
+                            ),
+                          ),
                         if (layersVisible && !compactPanels)
                           SizedBox(
                             width: narrowStack ? narrowPanelWidth : 250,
@@ -5024,15 +6411,22 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
                   ),
                   if (!focusMode &&
                       !_collaborationReadOnly &&
-                      widget.services.enableAiStudio)
+                      widget.services.enableAiStudio &&
+                      _showAiComposer)
                     Positioned(
-                      left: !compactPanels && layersVisible
-                          ? (narrowStack ? narrowPanelWidth : 250.0)
+                      left: isNarrowViewport
+                          ? panelInset
+                          : !compactPanels
+                          ? (narrowStack ? narrowPanelWidth : 250.0) *
+                                    (layersVisible ? 1 : 0) +
+                                (workspaceInRail ? 280.0 : 0)
                           : 0,
-                      right: !compactPanels && inspectorVisible
+                      right: isNarrowViewport
+                          ? panelInset
+                          : !compactPanels && inspectorVisible
                           ? (narrowStack ? narrowPanelWidth : 280.0)
                           : 0,
-                      bottom: AppSpacing.md,
+                      bottom: isNarrowViewport ? panelInset : AppSpacing.md,
                       child: Align(
                         alignment: Alignment.bottomCenter,
                         child: AIPanel(
@@ -6967,7 +8361,7 @@ class _CanvasEditorSurfaceState extends ConsumerState<CanvasEditorSurface> {
       items: const [
         UiMenuAction<String>(
           value: 'open_ai_engine',
-          label: 'Focus AI prompt',
+          label: 'Show or focus AI prompt',
           icon: Icons.auto_awesome,
         ),
         UiMenuAction<String>(

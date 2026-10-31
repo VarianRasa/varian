@@ -20,6 +20,8 @@ import 'package:varian/features/home/state/home_provider.dart';
 import 'package:drift/native.dart';
 import 'package:varian/data/local/durable/durable_project_store.dart';
 import 'package:varian/data/local/durable/project_session.dart';
+import 'package:varian/domain/models/cloud_project_deletion.dart';
+import 'package:varian/features/home/presentation/widgets/cloud_project_deletion_dialog.dart';
 import '../../test_app.dart';
 
 void main() {
@@ -97,6 +99,26 @@ void main() {
       isPinned: pinned,
     );
   }
+
+  testWidgets('legacy default project titles use their creation timestamp', (
+    tester,
+  ) async {
+    final created = DateTime(2026, 10, 2, 7, 4);
+    final legacy = LocalProjectMetadata(
+      id: 'legacy-default',
+      name: 'Untitled Doc',
+      createdAt: created,
+      updatedAt: created,
+    );
+    final custom = project('custom-project', 'My canvas');
+
+    await pumpHome(tester, [legacy, custom]);
+
+    expect(find.text('2026-10-02 07:04'), findsOneWidget);
+    expect(find.text('Untitled Doc'), findsNothing);
+    expect(find.text('My canvas'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets('project-library error icon uses the compact control token', (
     tester,
@@ -295,6 +317,190 @@ void main() {
 
     expect(tabs.state, isEmpty);
     expect((await storage.getProjects()).single.status, ProjectStatus.trashed);
+  });
+
+  testWidgets('cloud deletion requires confirmation and preserves local data', (
+    tester,
+  ) async {
+    final metadata = LocalProjectMetadata(
+      id: 'cloud-project',
+      name: 'Cloud project',
+      createdAt: DateTime.utc(2026, 10, 1),
+      updatedAt: DateTime.utc(2026, 10, 1),
+      cloudOwnerId: 'account-1',
+    );
+    final requests = <http.Request>[];
+    var deletionStatusReads = 0;
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'test-publishable-key',
+      authOptions: const AuthClientOptions(autoRefreshToken: false),
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        if (request.url.path.endsWith('/projects')) {
+          return http.Response(
+            jsonEncode([]),
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }
+        if (request.url.path.endsWith(
+          '/workspace_note_attachment_rehome_jobs',
+        )) {
+          deletionStatusReads++;
+          return http.Response(
+            jsonEncode(
+              deletionStatusReads <= 2
+                  ? []
+                  : [
+                      {
+                        'id': 'rehome-job-1',
+                        'requested_by': 'account-1',
+                        'status': 'complete',
+                        'attempt_count': 1,
+                      },
+                    ],
+            ),
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }
+        if (request.url.path.endsWith(
+          '/rpc/request_workspace_note_project_delete',
+        )) {
+          return http.Response(
+            jsonEncode([
+              {'status': 'pending', 'job_id': 'rehome-job-1'},
+            ]),
+            200,
+            headers: {'content-type': 'application/json'},
+            request: request,
+          );
+        }
+        throw StateError('Unexpected cloud request: ${request.url}');
+      }),
+    );
+    await authenticateTestClient(client);
+    final sync = SupabaseSyncService(client);
+    addTearDown(() {
+      sync.dispose();
+      client.dispose();
+    });
+    final user = User(
+      id: 'account-1',
+      appMetadata: const {},
+      userMetadata: const {},
+      aud: 'authenticated',
+      createdAt: '2026-10-01T00:00:00Z',
+      isAnonymous: false,
+    );
+    await pumpHome(
+      tester,
+      [metadata],
+      providerOverrides: [
+        supabaseClientProvider.overrideWithValue(client),
+        supabaseSyncServiceProvider.overrideWithValue(sync),
+        authUserProvider.overrideWith((ref) => Stream.value(user)),
+      ],
+    );
+
+    final actions = find.bySemanticsLabel('Project actions');
+    await tester.ensureVisible(actions);
+    await tester.tap(actions);
+    await tester.pumpAndSettle();
+    expect(find.text('Delete from cloud'), findsOneWidget);
+    await tester.tap(find.text('Delete from cloud'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Delete cloud project?'), findsOneWidget);
+    expect(
+      requests.any(
+        (request) => request.url.path.endsWith(
+          '/rpc/request_workspace_note_project_delete',
+        ),
+      ),
+      isFalse,
+    );
+    await tester.tap(find.text('CANCEL'));
+    await tester.pumpAndSettle();
+    expect(requests.any((request) => request.method == 'DELETE'), isFalse);
+
+    await tester.tap(actions);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete from cloud'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('DELETE FROM CLOUD'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cloud deletion pending'), findsNWidgets(2));
+    expect(
+      requests.any(
+        (request) => request.url.path.endsWith(
+          '/rpc/request_workspace_note_project_delete',
+        ),
+      ),
+      isTrue,
+    );
+    expect(requests.any((request) => request.method == 'DELETE'), isFalse);
+
+    await tester.tap(find.text('CHECK STATUS'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cloud deleted · local copy kept'), findsOneWidget);
+    final local = (await LocalStorageService().getProjects()).single;
+    expect(local.id, 'cloud-project');
+    expect(local.cloudOwnerId, isNull);
+    expect(local.cloudMetadataSyncPending, isFalse);
+    expect(local.status, ProjectStatus.active);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('retries a failed cloud deletion and refreshes its status', (
+    tester,
+  ) async {
+    String? retriedJobId;
+    CloudProjectDeletionResult? changedStatus;
+    await tester.pumpWidget(
+      testApp(
+        Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => CloudProjectDeletionStatusDialog(
+                  initialResult: const CloudProjectDeletionResult(
+                    status: CloudProjectDeletionStatus.failed,
+                    jobId: 'rehome-job-2',
+                    attemptCount: 8,
+                  ),
+                  loadStatus: () async => const CloudProjectDeletionResult(
+                    status: CloudProjectDeletionStatus.pending,
+                    jobId: 'rehome-job-2',
+                  ),
+                  retry: (jobId) async => retriedJobId = jobId,
+                  onStatusChanged: (result) => changedStatus = result,
+                  onCompleted: () async {},
+                ),
+              ),
+              child: const Text('Open status'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open status'));
+    await tester.pumpAndSettle();
+    expect(find.text('Cloud deletion failed'), findsOneWidget);
+
+    await tester.tap(find.text('RETRY CLOUD DELETION'));
+    await tester.pumpAndSettle();
+
+    expect(retriedJobId, 'rehome-job-2');
+    expect(changedStatus?.status, CloudProjectDeletionStatus.pending);
+    expect(find.text('Cloud deletion pending'), findsOneWidget);
+    expect(find.text('Cloud deletion failed'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('requires confirmation before permanent deletion', (

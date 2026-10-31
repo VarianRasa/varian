@@ -1321,6 +1321,10 @@ class _NestedBoardEditorContentState
                 UiIconButton(
                   key: const ValueKey('nested-toggle-object-tree'),
                   icon: Icons.layers_outlined,
+                  iconWidget: SidebarPanelToggleIcon(
+                    side: SidebarPanelSide.left,
+                    expanded: widget.panelController.showLayers,
+                  ),
                   tooltip: widget.panelController.showLayers
                       ? 'Hide Object Tree'
                       : 'Show Object Tree',
@@ -1331,6 +1335,10 @@ class _NestedBoardEditorContentState
                 UiIconButton(
                   key: const ValueKey('nested-toggle-inspector'),
                   icon: Icons.tune_outlined,
+                  iconWidget: SidebarPanelToggleIcon(
+                    side: SidebarPanelSide.right,
+                    expanded: widget.panelController.showInspector,
+                  ),
                   tooltip: widget.panelController.showInspector
                       ? 'Hide Inspector'
                       : 'Show Inspector',

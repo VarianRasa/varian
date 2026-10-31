@@ -987,19 +987,40 @@ void main() {
       lessThanOrEqualTo(compactInspectorRect.top),
     );
 
-    await tester.tap(find.byKey(const ValueKey('nested-toggle-object-tree')));
+    final objectTreeToggle = find.byKey(
+      const ValueKey('nested-toggle-object-tree'),
+    );
+    final inspectorToggle = find.byKey(
+      const ValueKey('nested-toggle-inspector'),
+    );
+    expect(
+      find.descendant(
+        of: objectTreeToggle,
+        matching: find.byType(SidebarPanelToggleIcon),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: inspectorToggle,
+        matching: find.byType(SidebarPanelToggleIcon),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(objectTreeToggle);
     await tester.pumpAndSettle();
     expect(find.byType(LayersPanel), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('nested-toggle-object-tree')));
+    await tester.tap(objectTreeToggle);
     await tester.pumpAndSettle();
     expect(find.byType(LayersPanel), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('nested-toggle-inspector')));
+    await tester.tap(inspectorToggle);
     await tester.pumpAndSettle();
     expect(find.byType(InspectorPanel), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('nested-toggle-inspector')));
+    await tester.tap(inspectorToggle);
     await tester.pumpAndSettle();
     expect(find.byType(InspectorPanel), findsOneWidget);
     expect(tester.takeException(), isNull);

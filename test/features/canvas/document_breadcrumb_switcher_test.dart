@@ -23,6 +23,9 @@ void main() {
     String? closedProjectId;
     OpenDocumentTab? replacement;
     var created = false;
+    var createdNote = false;
+    var openedCanvas = false;
+    var openedNote = false;
 
     await tester.pumpWidget(
       ProviderScope(
@@ -34,6 +37,10 @@ void main() {
               selectedProjectId = tab.projectId;
             },
             onCreateProject: (context) async => created = true,
+            onCreateCanvas: (context) async => created = true,
+            onCreateNote: (context) async => createdNote = true,
+            onOpenSavedCanvas: (context) async => openedCanvas = true,
+            onOpenSavedNote: (context) async => openedNote = true,
             onCloseDocument: (context, tab, next, active) async {
               closedProjectId = tab.projectId;
               replacement = next;
@@ -64,8 +71,31 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('document-switcher-menu')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New document'));
+    expect(find.text('New blank Canvas'), findsOneWidget);
+    expect(find.text('New blank Notes'), findsOneWidget);
+    expect(find.text('Open saved Canvas'), findsOneWidget);
+    expect(find.text('Open saved Notes'), findsOneWidget);
+
+    await tester.tap(find.text('New blank Canvas'));
     await tester.pumpAndSettle();
     expect(created, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('document-switcher-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New blank Notes'));
+    await tester.pumpAndSettle();
+    expect(createdNote, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('document-switcher-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open saved Canvas'));
+    await tester.pumpAndSettle();
+    expect(openedCanvas, isTrue);
+
+    await tester.tap(find.byKey(const ValueKey('document-switcher-menu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Open saved Notes'));
+    await tester.pumpAndSettle();
+    expect(openedNote, isTrue);
   });
 }

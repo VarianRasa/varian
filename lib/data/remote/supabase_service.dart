@@ -18,6 +18,7 @@ import '../../domain/models/collaboration.dart';
 import '../../domain/models/document.dart';
 import '../../domain/models/document_asset.dart';
 import '../../domain/models/document_asset_dependencies.dart';
+import '../../domain/models/cloud_project_deletion.dart';
 import '../../domain/models/media_timeline.dart';
 import '../../domain/models/workspace_governance.dart';
 import '../../domain/models/durable_asset_reference.dart';
@@ -827,7 +828,7 @@ class SupabaseSyncService {
     }
   }
 
-  Future<void> deleteOwnedProject(
+  Future<CloudProjectDeletionResult> deleteOwnedProject(
     String projectId, {
     String? expectedUserId,
   }) async {
@@ -837,19 +838,86 @@ class SupabaseSyncService {
     }
     final userId = _authenticatedUserId(expectedUserId: expectedUserId);
     try {
+      final response = await client.rpc(
+        'request_workspace_note_project_delete',
+        params: {'p_project_id': projectId},
+      );
       _authenticatedUserId(expectedUserId: userId);
-      await client
-          .from('projects')
-          .delete()
-          .eq('id', projectId)
-          .eq('owner_id', userId);
-      _authenticatedUserId(expectedUserId: userId);
+      return CloudProjectDeletionResult.fromJson(
+        _singleCloudProjectDeletionRow(response),
+      );
     } on SyncException {
       rethrow;
     } catch (error) {
       debugPrint('[SupabaseSync] deleteOwnedProject failed: $error');
-      throw SyncException('Failed to delete cloud project', error);
+      throw SyncException('Failed to request cloud project deletion', error);
     }
+  }
+
+  Future<CloudProjectDeletionResult?> getOwnedProjectDeletionStatus(
+    String projectId, {
+    String? expectedUserId,
+  }) async {
+    final client = _client;
+    if (client == null) {
+      throw const SyncException('Cloud backend is not configured.');
+    }
+    final userId = _authenticatedUserId(expectedUserId: expectedUserId);
+    try {
+      final row = await client
+          .from('workspace_note_attachment_rehome_jobs')
+          .select('id, requested_by, status, attempt_count, last_error_code')
+          .eq('job_kind', 'project_delete')
+          .eq('source_project_id', projectId)
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+      _authenticatedUserId(expectedUserId: userId);
+      if (row == null) return null;
+      if (row['requested_by'] != userId) {
+        throw const SyncException('Cloud project deletion is unavailable.');
+      }
+      return CloudProjectDeletionResult.fromJson(
+        Map<String, dynamic>.from(row),
+      );
+    } on SyncException {
+      rethrow;
+    } catch (error) {
+      debugPrint('[SupabaseSync] getOwnedProjectDeletionStatus failed.');
+      throw SyncException(
+        'Failed to read cloud project deletion status',
+        error,
+      );
+    }
+  }
+
+  Future<void> retryOwnedProjectDeletion({
+    required String jobId,
+    String? expectedUserId,
+  }) async {
+    final client = _client;
+    if (client == null) {
+      throw const SyncException('Cloud backend is not configured.');
+    }
+    final userId = _authenticatedUserId(expectedUserId: expectedUserId);
+    try {
+      await client.rpc(
+        'retry_workspace_note_attachment_rehome',
+        params: {'p_job_id': jobId},
+      );
+      _authenticatedUserId(expectedUserId: userId);
+    } on SyncException {
+      rethrow;
+    } catch (error) {
+      debugPrint('[SupabaseSync] retryOwnedProjectDeletion failed.');
+      throw SyncException('Failed to retry cloud project deletion', error);
+    }
+  }
+
+  Map<String, dynamic> _singleCloudProjectDeletionRow(Object? value) {
+    final row = value is List && value.length == 1 ? value.single : value;
+    if (row is Map) return Map<String, dynamic>.from(row);
+    throw const FormatException('Cloud project deletion response is invalid.');
   }
 
   Future<void> claimProjectOwnership(

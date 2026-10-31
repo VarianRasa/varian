@@ -183,6 +183,63 @@ class CreativeStudioLocalizations {
   String get homeProjectAdoptRequiresSignIn => isIndonesian
       ? 'Masuk ke akun cloud sebelum mengadopsi proyek.'
       : 'Sign in to a cloud account before adopting a project.';
+  String get homeProjectDeleteFromCloudAction =>
+      isIndonesian ? 'Hapus dari cloud' : 'Delete from cloud';
+  String get homeProjectDeleteFromCloudTitle =>
+      isIndonesian ? 'Hapus proyek cloud?' : 'Delete cloud project?';
+  String homeProjectDeleteFromCloudDescription(String name) => isIndonesian
+      ? '“$name” akan dihapus dari cloud. Lampiran Notes dipindahkan ke ruang pribadi lebih dulu. Salinan lokal tetap tersimpan di perangkat ini, termasuk jika penghapusan cloud gagal.'
+      : '“$name” will be deleted from the cloud. Notes attachments are rehomed to private scope first. The local copy stays on this device, including if cloud deletion fails.';
+  String get homeProjectDeleteFromCloudConfirm =>
+      isIndonesian ? 'HAPUS DARI CLOUD' : 'DELETE FROM CLOUD';
+  String get homeProjectCloudDeletionTitle => isIndonesian
+      ? 'Status penghapusan cloud'
+      : 'Cloud deletion status';
+  String homeProjectCloudDeletionLabel(String status) => switch (status) {
+    'pending' => isIndonesian
+        ? 'Penghapusan cloud tertunda'
+        : 'Cloud deletion pending',
+    'copying' => isIndonesian
+        ? 'Memindahkan lampiran Notes'
+        : 'Rehoming Notes attachments',
+    'cleanup' => isIndonesian
+        ? 'Menyelesaikan penghapusan cloud'
+        : 'Finishing cloud deletion',
+    'failed' => isIndonesian
+        ? 'Penghapusan cloud gagal'
+        : 'Cloud deletion failed',
+    'complete' => isIndonesian
+        ? 'Cloud dihapus · salinan lokal disimpan'
+        : 'Cloud deleted · local copy kept',
+    _ => isIndonesian ? 'Status cloud tidak tersedia' : 'Cloud status unavailable',
+  };
+  String homeProjectCloudDeletionMessage(String status) => switch (status) {
+    'pending' || 'copying' || 'cleanup' => isIndonesian
+        ? 'Penghapusan sedang berjalan. Proyek cloud tetap tersedia sampai pemindahan Notes selesai. Salinan lokal tidak berubah.'
+        : 'Deletion is in progress. The cloud project remains available until Notes rehoming finishes. The local copy is unchanged.',
+    'failed' => isIndonesian
+        ? 'Penghapusan gagal setelah percobaan ulang. Proyek cloud dan salinan lokal tetap tersedia. Coba ulang atau periksa statusnya.'
+        : 'Deletion failed after retries. The cloud project and local copy are retained. Retry the job or refresh its status.',
+    'complete' => isIndonesian
+        ? 'Proyek cloud telah dihapus. Salinan lokal tetap tersedia di perangkat ini.'
+        : 'The cloud project is deleted. The local copy remains available on this device.',
+    _ => isIndonesian
+        ? 'Status penghapusan tidak tersedia. Salinan lokal tetap aman.'
+        : 'Deletion status is unavailable. The local copy remains safe.',
+  };
+  String homeProjectCloudDeletionAttempts(int count) => isIndonesian
+      ? 'Percobaan: $count'
+      : 'Attempts: $count';
+  String get homeProjectCloudDeletionRetry =>
+      isIndonesian ? 'COBA ULANG PENGHAPUSAN CLOUD' : 'RETRY CLOUD DELETION';
+  String get homeProjectCloudDeletionRefresh =>
+      isIndonesian ? 'PERIKSA STATUS' : 'CHECK STATUS';
+  String get homeProjectCloudDeletionError => isIndonesian
+      ? 'Status cloud tidak dapat diperbarui. Salinan lokal tetap aman.'
+      : 'Cloud status could not be updated. The local copy is safe.';
+  String get homeProjectCloudDeletionSignIn => isIndonesian
+      ? 'Masuk sebagai pemilik proyek cloud untuk menghapusnya.'
+      : 'Sign in as the cloud project owner to delete it.';
   String homeProjectModifiedLabel(String date) =>
       isIndonesian ? 'DIUBAH $date' : 'MODIFIED $date';
   String homeProjectCollaborationRoomLabel(String roomCode, String role) {
@@ -251,6 +308,57 @@ class CreativeStudioLocalizations {
       isIndonesian ? 'HAPUS PERMANEN' : 'DELETE PERMANENTLY';
   String get homeMoveDocumentToTrashAction =>
       isIndonesian ? 'PINDAHKAN KE SAMPAH' : 'MOVE TO TRASH';
+
+  String get notesMoveScopeAction =>
+      isIndonesian ? 'Pindahkan catatan' : 'Move note';
+  String get notesMoveScopeTitle => isIndonesian
+      ? 'Pindahkan catatan ke ruang lain'
+      : 'Move note to another scope';
+  String notesMoveScopeDescription(String name) => isIndonesian
+      ? 'Pilih ruang untuk “$name”. Lampiran akan dipindahkan dan diverifikasi sebelum catatan berpindah.'
+      : 'Choose a scope for “$name”. Attachments are copied and verified before the note changes scope.';
+  String get notesPrivateScopeLabel =>
+      isIndonesian ? 'Catatan pribadi' : 'Private notes';
+  String notesProjectScopeLabel(String projectId) => isIndonesian
+      ? 'Proyek bersama · $projectId'
+      : 'Shared project · $projectId';
+  String get notesScopeChangeConfirm =>
+      isIndonesian ? 'PINDAHKAN CATATAN' : 'MOVE NOTE';
+  String notesScopeChangeStatusLabel(String status) => switch (status) {
+    'pending' => isIndonesian ? 'Pemindahan tertunda' : 'Move pending',
+    'copying' => isIndonesian ? 'Menyalin lampiran' : 'Copying attachments',
+    'cleanup' => isIndonesian ? 'Membersihkan lampiran lama' : 'Cleaning up old attachments',
+    'failed' => isIndonesian ? 'Pemindahan gagal' : 'Move failed',
+    'complete' => isIndonesian ? 'Pemindahan selesai' : 'Move complete',
+    _ => isIndonesian ? 'Status tidak tersedia' : 'Status unavailable',
+  };
+  String notesScopeChangeStatusMessage(String status) => switch (status) {
+    'pending' || 'copying' || 'cleanup' => isIndonesian
+        ? 'Catatan tetap di ruang asal sampai semua lampiran berhasil disalin dan diverifikasi.'
+        : 'The note stays in its current scope until every attachment has been copied and verified.',
+    'failed' => isIndonesian
+        ? 'Catatan dan salinan sumber tetap aman. Coba lagi untuk melanjutkan pemindahan.'
+        : 'The note and source copies remain safe. Retry to resume the move.',
+    'complete' => isIndonesian
+        ? 'Catatan dan lampirannya sudah berada di ruang yang dipilih.'
+        : 'The note and its attachments are now in the selected scope.',
+    _ => isIndonesian
+        ? 'Status pemindahan tidak tersedia. Coba periksa lagi.'
+        : 'Move status is unavailable. Check again.',
+  };
+  String notesScopeChangeAttempts(int count) => isIndonesian
+      ? 'Percobaan: $count'
+      : 'Attempts: $count';
+  String get notesScopeChangeRetry =>
+      isIndonesian ? 'COBA LAGI' : 'RETRY MOVE';
+  String get notesScopeChangeRefresh =>
+      isIndonesian ? 'PERIKSA STATUS' : 'CHECK STATUS';
+  String get notesScopeChangeError => isIndonesian
+      ? 'Pemindahan catatan tidak dapat dilanjutkan. Sumber tetap aman.'
+      : 'The note move could not continue. The source remains safe.';
+  String get notesScopeChangeDone =>
+      isIndonesian ? 'Catatan dipindahkan.' : 'Note moved.';
+
   String get onboardingLocalTitle =>
       isIndonesian ? 'Bekerja lokal terlebih dahulu' : 'Work locally first';
   String get onboardingLocalBody => isIndonesian

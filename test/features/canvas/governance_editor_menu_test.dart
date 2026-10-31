@@ -27,6 +27,7 @@ void main() {
     const userId = 'governance-editor-owner';
     SharedPreferences.setMockInitialValues({});
     final requests = <String>[];
+    final unexpectedRequests = <String>[];
     final lifecycleRequests = <String>[];
     final client = SupabaseClient(
       'https://example.test',
@@ -36,11 +37,17 @@ void main() {
         switch (request.url.path) {
           case '/rest/v1/projects':
             return http.Response(
-              jsonEncode({'id': projectId, 'owner_id': userId}),
+              jsonEncode([
+                {'id': projectId, 'owner_id': userId},
+              ]),
               200,
               headers: {'content-type': 'application/json'},
               request: request,
             );
+          case '/rest/v1/canvas_snapshots':
+          case '/rest/v1/user_project_preferences':
+          case '/rest/v1/workspace_notes':
+            return http.Response('[]', 200, request: request);
           case '/rest/v1/rpc/get_workspace_governance':
             return http.Response(
               jsonEncode({
@@ -91,7 +98,13 @@ void main() {
             lifecycleRequests.add(request.url.path);
             fail('Cloud lifecycle mutations must not run in this test.');
           default:
-            fail('Unexpected mocked backend request: ${request.url}');
+            unexpectedRequests.add('${request.method} ${request.url}');
+            return http.Response(
+              '{"message":"Unexpected mocked backend request."}',
+              404,
+              headers: {'content-type': 'application/json'},
+              request: request,
+            );
         }
       }),
     );
@@ -109,10 +122,11 @@ void main() {
         openDocumentTabsProvider.overrideWith((ref) => tabs),
       ],
     );
-    addTearDown(container.dispose);
-    addTearDown(tabs.dispose);
-    addTearDown(service.dispose);
-    addTearDown(client.dispose);
+    addTearDown(() {
+      container.dispose();
+      service.dispose();
+      client.dispose();
+    });
     addTearDown(tester.view.reset);
     await localStorage.saveProjectMetadata(
       LocalProjectMetadata(
@@ -149,7 +163,6 @@ void main() {
       ),
     );
     await tester.pump();
-
     final settingsMenuFinder = find.byKey(const Key('canvas-settings-menu'));
     final settingsMenuElements = settingsMenuFinder.evaluate();
     expect(settingsMenuElements.isNotEmpty, isTrue);
@@ -191,6 +204,7 @@ void main() {
       hasLength(greaterThanOrEqualTo(2)),
     );
     expect(lifecycleRequests, isEmpty);
+    expect(unexpectedRequests, isEmpty);
     expect(requests.every((request) => request.isNotEmpty), isTrue);
 
     final close = find.byTooltip('Close workspace governance');
