@@ -83,7 +83,7 @@ dependencies:
   merman: 0.7.0
   flutter_svg: 2.3.0
   fl_chart: ^1.2.0
-  flutter_webrtc: ^1.6.2+hotfix.1
+  flutter_webrtc: ^1.6.3
   livekit_client: ^2.13.0
   drift: 2.35.0
   drift_flutter: 0.3.1
