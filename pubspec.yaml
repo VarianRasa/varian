@@ -77,7 +77,7 @@ dependencies:
   mix: ^2.2.0
   flutter_secure_storage: ^11.2.0
   pointycastle: ^4.0.0
-  web: 1.1.1
+  web: 1.1.2
   window_manager: ^0.5.2
   ffi: ^2.2.0
   merman: 0.7.0
