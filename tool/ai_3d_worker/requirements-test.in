@@ -1,2 +1,2 @@
 -r requirements.txt
-coverage==7.10.7
+coverage==7.17.0
