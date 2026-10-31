@@ -5,11 +5,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 /// Allows a small rasterization difference in Linux golden tests.
-void allowLinuxGoldenRasterizationDifference(String testFile) {
+void allowLinuxGoldenRasterizationDifference(
+  String testFile, {
+  double precisionTolerance = 0.003,
+}) {
   if (!Platform.isLinux) return;
   goldenFileComparator = TolerantGoldenFileComparator(
     Uri.file(p.join(Directory.current.path, testFile)),
-    precisionTolerance: 0.003,
+    precisionTolerance: precisionTolerance,
   );
 }
 

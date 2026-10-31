@@ -246,10 +246,20 @@ void main() {
       ),
     );
 
-    await expectLater(
-      find.byKey(_canvasKey),
-      matchesGoldenFile('goldens/canvas_locked_hidden_text_hidpi.png'),
+    // Linux CI differs by 0.42% on this high-DPI text golden.
+    final previousComparator = goldenFileComparator;
+    allowLinuxGoldenRasterizationDifference(
+      'test/features/canvas/canvas_golden_test.dart',
+      precisionTolerance: 0.005,
     );
+    try {
+      await expectLater(
+        find.byKey(_canvasKey),
+        matchesGoldenFile('goldens/canvas_locked_hidden_text_hidpi.png'),
+      );
+    } finally {
+      goldenFileComparator = previousComparator;
+    }
   });
 }
 
