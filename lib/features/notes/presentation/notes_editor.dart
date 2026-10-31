@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,7 @@ import 'package:varian/features/assets/data/asset_service.dart'
     show readPlatformFileBytes;
 import 'package:varian/domain/models/node_payload.dart';
 import 'package:varian/features/canvas/presentation/widgets/pdf_viewer_dialog.dart';
+import 'package:varian/features/notes/data/workspace_note_attachment_repository.dart';
 import 'package:varian/features/notes/data/workspace_note_repository.dart';
 import 'package:varian/features/notes/domain/note_markdown_metadata.dart';
 import 'package:varian/features/notes/domain/workspace_note.dart';
@@ -597,12 +599,14 @@ class _NotesEditorState extends ConsumerState<NotesEditor> {
         projectId: note.projectId,
       );
       if (!_isCurrentAttachmentContext(note, accountId)) return;
-      bytes ??= await repository.readBytes(
-        accountId: accountId,
-        noteId: note.id,
-        attachmentId: attachmentId,
-        expectedProjectId: note.projectId,
-      );
+      if (bytes == null) {
+        bytes = await repository.readBytes(
+          accountId: accountId,
+          noteId: note.id,
+          attachmentId: attachmentId,
+          expectedProjectId: note.projectId,
+        );
+      }
       if (!_isCurrentAttachmentContext(note, accountId) ||
           !parseWorkspaceNoteAttachmentEmbeds(
             _markdownController.text,

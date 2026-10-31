@@ -11,12 +11,15 @@ import 'package:varian/features/notes/domain/notes_canvas_operation.dart';
 
 class NotesCanvasSyncRepository {
   NotesCanvasSyncRepository({
-    required this._store,
-    required this._transport,
-    required this._keyForAccount,
-    required this._currentAccountId,
+    required NotesLocalStore store,
+    required NotesCanvasSyncTransport transport,
+    required Future<Uint8List?> Function(String accountId) keyForAccount,
+    required Future<String?> Function() currentAccountId,
     this.maxOperationsPerRun = 500,
-  });
+  }) : _store = store,
+       _transport = transport,
+       _keyForAccount = keyForAccount,
+       _currentAccountId = currentAccountId;
 
   final NotesLocalStore _store;
   final NotesCanvasSyncTransport _transport;

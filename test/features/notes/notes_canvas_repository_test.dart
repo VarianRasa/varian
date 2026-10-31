@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:varian/features/notes/data/notes_canvas_repository.dart';
+import 'package:varian/features/notes/domain/notes_canvas_board.dart';
 import 'package:varian/features/notes/domain/notes_canvas_board_state.dart';
 import 'package:varian/features/notes/domain/notes_canvas_document.dart';
 import 'package:varian/features/notes/domain/notes_canvas_operation.dart';

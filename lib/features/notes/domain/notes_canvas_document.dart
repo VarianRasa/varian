@@ -11,11 +11,14 @@ import 'package:varian/features/notes/domain/notes_canvas_operation.dart';
 class NotesCanvasDocument {
   NotesCanvasDocument._({
     required this.boardId,
-    required this._baseCards,
-    required this._edges,
-    required this._textSequences,
-    required this._versionVector,
-  });
+    required Map<String, NotesCanvasCard> baseCards,
+    required Map<String, NotesCanvasEdge> edges,
+    required Map<String, CrdtTextSequence> textSequences,
+    required CrdtVersionVector versionVector,
+  }) : _baseCards = baseCards,
+       _edges = edges,
+       _textSequences = textSequences,
+       _versionVector = versionVector;
 
   static const snapshotSchemaVersion = 2;
   static const maxSnapshotBytes = 20 * 1024 * 1024;
@@ -479,9 +482,8 @@ class NotesCanvasDocument {
 
   CrdtTextSequence _requireTextSequence(String cardId) {
     final sequence = _textSequences[cardId];
-    if (sequence == null) {
+    if (sequence == null)
       throw StateError('The Canvas text card is unavailable.');
-    }
     return sequence;
   }
 
@@ -729,9 +731,8 @@ bool _validDelta(double value) =>
 
 String _requiredString(Map<String, dynamic> json, String key) {
   final value = json[key];
-  if (value is! String) {
+  if (value is! String)
     throw FormatException('Canvas field "$key" is invalid.');
-  }
   return value;
 }
 
@@ -752,11 +753,10 @@ CrdtVersionVector _readVersionVector(Object? raw) {
   }
   final values = <String, int>{};
   for (final entry in raw.entries) {
-    final value = entry.value;
-    if (entry.key is! String || value is! int || value < 0) {
+    if (entry.key is! String || entry.value is! int || entry.value < 0) {
       throw const FormatException('Canvas version vector is malformed.');
     }
-    values[entry.key as String] = value;
+    values[entry.key as String] = entry.value as int;
   }
   return CrdtVersionVector(values);
 }

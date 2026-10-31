@@ -222,9 +222,6 @@ void main() {
         contains("Refusing database name 'unsafe_database'"),
       );
     },
-    skip: Platform.isWindows
-        ? false
-        : 'The local integration harness is a Windows PowerShell script.',
   );
 
   test('import RPC is atomic, scope-checked, and server-attributes notes', () {

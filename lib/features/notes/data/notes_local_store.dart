@@ -11,8 +11,9 @@ class NotesLocalStore {
   NotesLocalStore({
     required this.database,
     FlutterSecureStorage? secureStorage,
-    this._storageAvailability,
-  }) : _secure = secureStorage ?? const FlutterSecureStorage();
+    Future<bool> Function()? storageAvailability,
+  }) : _secure = secureStorage ?? const FlutterSecureStorage(),
+       _storageAvailability = storageAvailability;
   final NotesLocalDatabase database;
   final FlutterSecureStorage _secure;
   final Future<bool> Function()? _storageAvailability;
