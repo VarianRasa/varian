@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart' hide Viewport;
 import 'package:flutter_test/flutter_test.dart';
+import '../../support/tolerant_golden_file_comparator.dart';
 import 'package:varian/domain/models/connector_edge.dart';
 import 'package:varian/domain/models/node.dart';
 import 'package:varian/domain/models/node_payload.dart';
@@ -8,6 +9,10 @@ import 'package:varian/features/canvas/presentation/painters/canvas_painter.dart
 import 'package:varian/features/canvas/presentation/painters/grid_painter.dart';
 
 void main() {
+  allowLinuxGoldenRasterizationDifference(
+    'test/features/canvas/canvas_golden_test.dart',
+  );
+
   testWidgets('selection and transform rendering remains stable', (
     tester,
   ) async {

@@ -1157,6 +1157,7 @@ void main() {
           null,
           null,
           MemoryImageArtifactStore(),
+          (_) async {},
         ).executeJob(
           AIJob(
             id: 'markdown-chat-image-job',
