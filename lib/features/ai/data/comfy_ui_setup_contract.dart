@@ -115,9 +115,9 @@ const comfyUiSetupManifest = ComfyUiSetupManifest(
       source: 'asset://tool/comfyui_video_bridge/workflow_api.json',
       fileName: 'workflow_api.json',
       relativeDestination: 'ComfyUI',
-      sizeBytes: 4521,
+      sizeBytes: 4307,
       sha256:
-          'bd89d0202b76e0e2cdce54e1ee7c0f7beda8980db937ec8edd20350cd91787d3',
+          'ad1ec02677d0735d43463862a53ee6061769cbbe311cf12bee047d19f1c67204',
     ),
   ],
 );

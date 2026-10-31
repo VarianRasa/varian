@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import ipaddress
 import json
+import logging
 import os
 import re
 import secrets
 import shutil
 import socket
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -20,15 +23,16 @@ from urllib.parse import urlparse
 import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field
+from starlette.middleware.base import RequestResponseEndpoint
 
-from .glb_utils import GLBValidationError, validate_glb_file
+from .glb_utils import GLBValidationError
 from .postprocess import PostprocessError, generate_preview, postprocess_glb
 from .providers import (
     GenerationRequest,
     ProviderError,
-    ProviderUnavailable,
+    ProviderUnavailableError,
     create_provider,
 )
 
@@ -54,7 +58,7 @@ WORKER_TOKEN = os.getenv("VARIAN_3D_WORKER_TOKEN", "").strip()
 DEFAULT_PROVIDER = os.getenv("AI_3D_DEFAULT_PROVIDER", "triposr").strip().lower()
 PUBLIC_BASE_URL = os.getenv("AI_3D_PUBLIC_BASE_URL", "").strip().rstrip("/")
 ALLOW_SOURCE_URLS = _env_bool("AI_3D_ALLOW_SOURCE_URLS", True)
-ALLOW_LOOPBACK_SOURCE_URLS = _env_bool("AI_3D_ALLOW_LOOPBACK_SOURCE_URLS", True)
+ALLOW_LOOPBACK_SOURCE_URLS = _env_bool("AI_3D_ALLOW_LOOPBACK_SOURCE_URLS", False)
 ARTIFACT_TTL_SECONDS = max(300, int(os.getenv("AI_3D_ARTIFACT_TTL_SECONDS", "86400")))
 MAX_CONCURRENT_JOBS = max(1, int(os.getenv("AI_3D_MAX_CONCURRENT_JOBS", "1")))
 JOB_TIMEOUT_SECONDS = max(60, int(os.getenv("AI_3D_JOB_TIMEOUT_SECONDS", "1800")))
@@ -73,8 +77,12 @@ class CreateJobRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=MAX_PROMPT_CHARS)
     negative_prompt: str | None = Field(default=None, alias="negativePrompt", max_length=1000)
     source_image_base64: str | None = Field(default=None, alias="sourceImageBase64")
-    source_image_url: str | None = Field(default=None, alias="sourceImageUrl", max_length=MAX_URL_CHARS)
-    source_model_reference: str | None = Field(default=None, alias="sourceModelReference", max_length=1000)
+    source_image_url: str | None = Field(
+        default=None, alias="sourceImageUrl", max_length=MAX_URL_CHARS
+    )
+    source_model_reference: str | None = Field(
+        default=None, alias="sourceModelReference", max_length=1000
+    )
     provider: str | None = Field(default=None, max_length=40)
     mesh_quality: str = Field(default="balanced", alias="meshQuality", max_length=20)
     texture_mode: str = Field(default="pbr", alias="textureMode", max_length=20)
@@ -90,6 +98,7 @@ class JobRecord:
     request: CreateJobRequest
     public_base_url: str
     artifact_token: str
+    request_id: str | None = None
     status: str = "queued"
     progress: float = 0.0
     error: str | None = None
@@ -109,9 +118,7 @@ _jobs_lock = asyncio.Lock()
 _job_slots = asyncio.Semaphore(MAX_CONCURRENT_JOBS)
 
 cors_origins = [
-    value.strip()
-    for value in os.getenv("AI_3D_CORS_ORIGINS", "*").split(",")
-    if value.strip()
+    value.strip() for value in os.getenv("AI_3D_CORS_ORIGINS", "*").split(",") if value.strip()
 ]
 app.add_middleware(
     CORSMiddleware,
@@ -119,7 +126,43 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
+    expose_headers=["X-Request-ID"],
 )
+
+
+logger = logging.getLogger("varian.ai_3d_worker")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+
+@app.middleware("http")
+async def request_telemetry(
+    request: Request,
+    call_next: RequestResponseEndpoint,
+) -> Response:
+    request_id = str(uuid.uuid4())
+    request.state.request_id = request_id
+    started_at = time.perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = request_id
+        return response
+    finally:
+        route = request.scope.get("route")
+        _log_event(
+            "http_request_completed",
+            request_id=request_id,
+            method=request.method,
+            route=getattr(route, "path", "unmatched"),
+            status_code=status_code,
+            duration_ms=round((time.perf_counter() - started_at) * 1000, 3),
+        )
 
 
 @app.get("/v1/health")
@@ -157,10 +200,12 @@ async def create_job(request: Request) -> JSONResponse:
             request=job_request,
             public_base_url=_resolve_public_base_url(request),
             artifact_token=secrets.token_urlsafe(24),
+            request_id=request.state.request_id,
         )
         _jobs[job_id] = record
         _trim_jobs_locked()
         record.task = asyncio.create_task(_run_job(record))
+        _log_job_event(record, "job_queued")
     return JSONResponse(status_code=202, content=_serialize_job(record))
 
 
@@ -179,6 +224,7 @@ async def cancel_job(job_id: str, request: Request) -> dict[str, Any]:
         return _serialize_job(record)
     record.cancel_event.set()
     _set_status(record, "canceled", progress=record.progress)
+    _log_job_event(record, "job_canceled")
     return _serialize_job(record)
 
 
@@ -222,6 +268,7 @@ async def retry_job(job_id: str, request: Request) -> JSONResponse:
 
         current.cancel_event = threading.Event()
         current.artifact_token = secrets.token_urlsafe(24)
+        current.request_id = request.state.request_id
         current.status = "queued"
         current.progress = 0.0
         current.error = None
@@ -231,6 +278,7 @@ async def retry_job(job_id: str, request: Request) -> JSONResponse:
         current.preview_path = None
         current.updated_at = datetime.now(timezone.utc)
         current.task = asyncio.create_task(_run_job(current))
+        _log_job_event(current, "job_queued")
         return JSONResponse(status_code=202, content=_serialize_job(current))
 
 
@@ -285,6 +333,7 @@ async def _run_job(record: JobRecord) -> None:
         if record.cancel_event.is_set():
             return
         _set_status(record, "processing", progress=2)
+        _log_job_event(record, "job_processing_started")
         job_dir.mkdir(parents=True, exist_ok=True)
         source_path = await asyncio.to_thread(_prepare_source_image, record.request, job_dir)
         if record.cancel_event.is_set():
@@ -345,9 +394,10 @@ async def _run_job(record: JobRecord) -> None:
         warnings = [warning for warning in (result.warning, preview_warning) if warning]
         if warnings:
             record.artifact["warning"] = " ".join(warnings)
+        _log_job_event(record, "job_completed")
     except asyncio.TimeoutError:
         _fail_record(record, "3D generation timed out.", "PROVIDER_TIMEOUT")
-    except ProviderUnavailable as error:
+    except ProviderUnavailableError as error:
         _fail_record(record, str(error), "PROVIDER_UNAVAILABLE")
     except (ProviderError, PostprocessError, GLBValidationError, ValueError) as error:
         _fail_record(record, str(error), "GENERATION_FAILED")
@@ -414,17 +464,25 @@ def _validate_job_request(job_request: CreateJobRequest) -> None:
         raise ValueError("sourceImageBase64 is too large.")
     if job_request.source_image_url:
         _validate_source_url(job_request.source_image_url)
-    if capability == "imageTo3D" and not job_request.source_image_base64 and not job_request.source_image_url:
+    if (
+        capability == "imageTo3D"
+        and not job_request.source_image_base64
+        and not job_request.source_image_url
+    ):
         raise ValueError("imageTo3D requires sourceImageBase64 or sourceImageUrl.")
 
 
 def _prepare_source_image(job_request: CreateJobRequest, job_dir: Path) -> Path | None:
     value = job_request.source_image_base64
     if value:
-        encoded = value.split(",", 1)[1] if value.lstrip().lower().startswith("data:image/") and "," in value else value
+        encoded = (
+            value.split(",", 1)[1]
+            if value.lstrip().lower().startswith("data:image/") and "," in value
+            else value
+        )
         try:
             data = base64.b64decode(encoded, validate=True)
-        except (ValueError, base64.binascii.Error) as error:
+        except (ValueError, binascii.Error) as error:
             raise ValueError("sourceImageBase64 is invalid.") from error
         return _write_source_image(data, job_dir / "source-image")
     if job_request.source_image_url:
@@ -471,16 +529,26 @@ def _validate_source_url(value: str) -> None:
     host = parsed.hostname.lower()
     is_loopback_host = host in {"localhost", "127.0.0.1", "::1"}
     if parsed.scheme != "https" and not (is_loopback_host and ALLOW_LOOPBACK_SOURCE_URLS):
-        raise ValueError("sourceImageUrl must use HTTPS unless it targets allowed loopback development services.")
+        raise ValueError(
+            "sourceImageUrl must use HTTPS unless it targets allowed loopback development services."
+        )
     try:
-        addresses = socket.getaddrinfo(host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+        addresses = socket.getaddrinfo(
+            host, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM
+        )
     except OSError as error:
         raise ValueError("sourceImageUrl host could not be resolved.") from error
     for address in addresses:
         ip = ipaddress.ip_address(address[4][0])
         if ip.is_loopback and ALLOW_LOOPBACK_SOURCE_URLS:
             continue
-        if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+        if (
+            ip.is_private
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        ):
             raise ValueError("sourceImageUrl resolves to a private or reserved address.")
 
 
@@ -488,7 +556,9 @@ def _looks_like_image(data: bytes) -> bool:
     return (
         data.startswith(b"\x89PNG\r\n\x1a\n")
         or data.startswith(b"\xff\xd8\xff")
-        or len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP"
+        or len(data) >= 12
+        and data[:4] == b"RIFF"
+        and data[8:12] == b"WEBP"
     )
 
 
@@ -529,7 +599,10 @@ def _serialize_job(record: JobRecord) -> dict[str, Any]:
         "provider": (record.request.provider or DEFAULT_PROVIDER).strip().lower(),
     }
     if record.error:
-        payload["error"] = {"code": record.error_code or "GENERATION_FAILED", "message": record.error}
+        payload["error"] = {
+            "code": record.error_code or "GENERATION_FAILED",
+            "message": record.error,
+        }
         payload["message"] = record.error
     if record.artifact is not None:
         payload["artifact"] = record.artifact
@@ -558,6 +631,31 @@ def _fail_record(record: JobRecord, message: str, code: str) -> None:
     record.error = message
     record.error_code = code
     _set_status(record, "failed", progress=record.progress)
+    _log_job_event(record, "job_failed")
+
+
+def _log_event(event: str, **fields: str | int | float | None) -> None:
+    logger.info(
+        json.dumps(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "event": event,
+                **fields,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
+def _log_job_event(record: JobRecord, event: str) -> None:
+    _log_event(
+        event,
+        request_id=record.request_id,
+        provider=(record.request.provider or DEFAULT_PROVIDER).strip().lower(),
+        status=record.status,
+        error_code=record.error_code,
+    )
 
 
 def _require_auth(request: Request) -> None:
@@ -581,7 +679,11 @@ def _trim_jobs_locked() -> None:
     if len(_jobs) <= 100:
         return
     completed = sorted(
-        (record for record in _jobs.values() if record.status in {"completed", "failed", "canceled"}),
+        (
+            record
+            for record in _jobs.values()
+            if record.status in {"completed", "failed", "canceled"}
+        ),
         key=lambda record: record.updated_at,
     )
     for record in completed[: max(0, len(_jobs) - 100)]:

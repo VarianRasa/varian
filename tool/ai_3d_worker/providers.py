@@ -10,7 +10,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 from urllib.parse import quote, urlsplit
 
 import httpx
@@ -25,7 +25,7 @@ class ProviderError(RuntimeError):
     pass
 
 
-class ProviderUnavailable(ProviderError):
+class ProviderUnavailableError(ProviderError):
     pass
 
 
@@ -76,9 +76,7 @@ def _trellis2_pipeline_type(mesh_quality: str) -> str:
     }.get(mesh_quality, "1024_cascade")
     if pipeline_type not in _TRELLIS2_PIPELINE_MODELS:
         supported = ", ".join(_TRELLIS2_PIPELINE_MODELS)
-        raise ProviderUnavailable(
-            f"TRELLIS2_PIPELINE_TYPE must be one of: {supported}."
-        )
+        raise ProviderUnavailableError(f"TRELLIS2_PIPELINE_TYPE must be one of: {supported}.")
     return pipeline_type
 
 
@@ -211,9 +209,7 @@ class ComfyUIProvider(ThreeDProvider):
                     },
                 )
                 if "{{" in json.dumps(workflow, separators=(",", ":")):
-                    raise ProviderError(
-                        "ComfyUI workflow contains an unresolved template token."
-                    )
+                    raise ProviderError("ComfyUI workflow contains an unresolved template token.")
                 progress(15)
                 prompt_id = self._queue_workflow(client, base_url, workflow)
                 progress(25)
@@ -229,7 +225,7 @@ class ComfyUIProvider(ThreeDProvider):
         except ProviderError:
             raise
         except httpx.HTTPError as error:
-            raise ProviderUnavailable(f"ComfyUI request failed: {error}") from error
+            raise ProviderUnavailableError(f"ComfyUI request failed: {error}") from error
         return ProviderResult(provider=self.name, output_path=request.output_path)
 
     def _upload_image(self, client: httpx.Client, base_url: str, path: Path) -> str:
@@ -363,7 +359,7 @@ class TripoSRProvider(ThreeDProvider):
         try:
             from PIL import Image
         except ImportError as error:
-            raise ProviderUnavailable("Install Pillow before using TripoSR.") from error
+            raise ProviderUnavailableError("Install Pillow before using TripoSR.") from error
 
         progress(10)
         image = Image.open(request.source_path).convert("RGB")
@@ -402,12 +398,13 @@ class TripoSRProvider(ThreeDProvider):
     def _load_model(cls) -> tuple[Any, Any]:
         try:
             import torch
+
             root = os.getenv("TRIPOSR_ROOT", "").strip()
             if root and root not in sys.path:
                 sys.path.insert(0, root)
             from tsr.system import TSR
         except ImportError as error:
-            raise ProviderUnavailable(
+            raise ProviderUnavailableError(
                 "TripoSR is not installed. Set TRIPOSR_ROOT to the pinned checkout "
                 "and install its dependencies from the worker README."
             ) from error
@@ -415,9 +412,7 @@ class TripoSRProvider(ThreeDProvider):
         with cls._lock:
             if cls._model is None:
                 configured_device = os.getenv("TRIPOSR_DEVICE", "").strip()
-                cls._device = configured_device or (
-                    "cuda" if torch.cuda.is_available() else "cpu"
-                )
+                cls._device = configured_device or ("cuda" if torch.cuda.is_available() else "cpu")
                 model_path = os.getenv("TRIPOSR_MODEL", "stabilityai/TripoSR")
                 cls._model = TSR.from_pretrained(
                     model_path,
@@ -443,16 +438,18 @@ class TrellisProvider(ThreeDProvider):
             import torch
             from PIL import Image
         except ImportError as error:
-            raise ProviderUnavailable(
+            raise ProviderUnavailableError(
                 "TRELLIS requires torch and Pillow. Install the optional TRELLIS dependencies."
             ) from error
         if not torch.cuda.is_available():
-            raise ProviderUnavailable("TRELLIS requires a CUDA-capable worker.")
+            raise ProviderUnavailableError("TRELLIS requires a CUDA-capable worker.")
 
         if os.getenv("TRELLIS2_ROOT", "").strip():
             return self._generate_trellis2(request, progress, cancel_event, torch, Image)
 
-        mode = "text" if request.capability == "textTo3D" and request.source_path is None else "image"
+        mode = (
+            "text" if request.capability == "textTo3D" and request.source_path is None else "image"
+        )
         pipeline = self._load_pipeline(mode)
         seed = request.seed if request.seed >= 0 else random.randint(0, 2**31 - 1)
         progress(12)
@@ -476,7 +473,7 @@ class TrellisProvider(ThreeDProvider):
         try:
             from trellis.utils import postprocessing_utils
         except ImportError as error:
-            raise ProviderUnavailable(
+            raise ProviderUnavailableError(
                 "TRELLIS postprocessing utilities are unavailable."
             ) from error
         texture_size = {"draft": 512, "balanced": 1024, "high": 2048}.get(
@@ -529,7 +526,7 @@ class TrellisProvider(ThreeDProvider):
         try:
             from o_voxel import postprocess
         except ImportError as error:
-            raise ProviderUnavailable(
+            raise ProviderUnavailableError(
                 "TRELLIS.2 post-processing is unavailable. Install the pinned o-voxel package."
             ) from error
         texture_size = {"draft": 512, "balanced": 1024, "high": 2048}.get(
@@ -574,12 +571,14 @@ class TrellisProvider(ThreeDProvider):
                     TrellisTextTo3DPipeline,
                 )
             except ImportError as error:
-                raise ProviderUnavailable(
+                raise ProviderUnavailableError(
                     "TRELLIS is not installed. Install the optional TRELLIS stack on Linux."
                 ) from error
             model_name = os.getenv(
                 "TRELLIS_TEXT_MODEL" if mode == "text" else "TRELLIS_IMAGE_MODEL",
-                "microsoft/TRELLIS-text-base" if mode == "text" else "microsoft/TRELLIS-image-large",
+                "microsoft/TRELLIS-text-base"
+                if mode == "text"
+                else "microsoft/TRELLIS-image-large",
             )
             pipeline_class = TrellisTextTo3DPipeline if mode == "text" else TrellisImageTo3DPipeline
             pipeline = pipeline_class.from_pretrained(model_name)
@@ -603,14 +602,14 @@ class TrellisProvider(ThreeDProvider):
             os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
             hf_token = _huggingface_token()
             if _env_bool("TRELLIS2_HF_TOKEN_REQUIRED", False) and not hf_token:
-                raise ProviderUnavailable(
+                raise ProviderUnavailableError(
                     "TRELLIS.2 requires HF_TOKEN with access to "
                     "facebook/dinov3-vitl16-pretrain-lvd1689m and briaai/RMBG-2.0."
                 )
             try:
                 from trellis2.pipelines import Trellis2ImageTo3DPipeline
             except ImportError as error:
-                raise ProviderUnavailable(
+                raise ProviderUnavailableError(
                     "TRELLIS.2 is not installed. Install the pinned TRELLIS.2 stack on Linux."
                 ) from error
             _install_trellis2_dinov3_compatibility()
@@ -621,7 +620,7 @@ class TrellisProvider(ThreeDProvider):
                 try:
                     from huggingface_hub import snapshot_download
                 except ImportError as error:
-                    raise ProviderUnavailable(
+                    raise ProviderUnavailableError(
                         "TRELLIS.2 model pinning requires huggingface_hub."
                     ) from error
                 try:
@@ -633,7 +632,7 @@ class TrellisProvider(ThreeDProvider):
                         snapshot_args["token"] = hf_token
                     model_path = snapshot_download(**snapshot_args)
                 except Exception as error:
-                    raise ProviderUnavailable(
+                    raise ProviderUnavailableError(
                         f"TRELLIS.2 model revision could not be downloaded: {error}"
                     ) from error
             try:
@@ -656,11 +655,13 @@ class TrellisProvider(ThreeDProvider):
                 pipeline.cuda()
             except Exception as error:
                 if _is_huggingface_access_error(error):
-                    raise ProviderUnavailable(
+                    raise ProviderUnavailableError(
                         "TRELLIS.2 requires HF_TOKEN with access to "
                         "facebook/dinov3-vitl16-pretrain-lvd1689m and briaai/RMBG-2.0."
                     ) from error
-                raise ProviderUnavailable(f"TRELLIS.2 could not load its model: {error}") from error
+                raise ProviderUnavailableError(
+                    f"TRELLIS.2 could not load its model: {error}"
+                ) from error
             cls._pipelines[cache_key] = pipeline
             return pipeline
 
@@ -677,15 +678,13 @@ class Hunyuan3DProvider(ThreeDProvider):
         cancel_event: threading.Event,
     ) -> ProviderResult:
         if request.source_path is None:
-            raise ProviderError(
-                "The configured Hunyuan3D pipeline requires an image reference."
-            )
+            raise ProviderError("The configured Hunyuan3D pipeline requires an image reference.")
         try:
             import torch
         except ImportError as error:
-            raise ProviderUnavailable("Hunyuan3D requires torch.") from error
+            raise ProviderUnavailableError("Hunyuan3D requires torch.") from error
         if not torch.cuda.is_available():
-            raise ProviderUnavailable("Hunyuan3D requires a CUDA-capable worker.")
+            raise ProviderUnavailableError("Hunyuan3D requires a CUDA-capable worker.")
         pipeline = self._load_pipeline()
         progress(15)
         if cancel_event.is_set():
@@ -710,7 +709,7 @@ class Hunyuan3DProvider(ThreeDProvider):
             try:
                 from hy3dshape.pipelines import Hunyuan3DDiTFlowMatchingPipeline
             except ImportError as error:
-                raise ProviderUnavailable(
+                raise ProviderUnavailableError(
                     "Hunyuan3D is not installed. Install the optional Hunyuan3D stack."
                 ) from error
             cls._pipeline = Hunyuan3DDiTFlowMatchingPipeline.from_pretrained(
@@ -742,11 +741,10 @@ def _env_bool(name: str, default: bool) -> bool:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
 def _huggingface_token() -> str:
-    return (
-        os.getenv("HF_TOKEN", "").strip()
-        or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
-    )
+    return os.getenv("HF_TOKEN", "").strip() or os.getenv("HUGGINGFACEHUB_API_TOKEN", "").strip()
+
 
 def _is_huggingface_access_error(error: BaseException) -> bool:
     text = str(error).lower()
@@ -773,26 +771,36 @@ def _comfy_base_url() -> str:
         or parsed.query
         or parsed.fragment
     ):
-        raise ProviderUnavailable("COMFYUI_BASE_URL must be an http(s) URL without credentials or query parts.")
+        raise ProviderUnavailableError(
+            "COMFYUI_BASE_URL must be an http(s) URL without credentials or query parts."
+        )
     if parsed.scheme == "http" and parsed.hostname.lower() not in {"localhost", "127.0.0.1", "::1"}:
         if not _env_bool("COMFYUI_ALLOW_INSECURE_HTTP", False):
-            raise ProviderUnavailable("COMFYUI_BASE_URL must use HTTPS outside loopback development.")
+            raise ProviderUnavailableError(
+                "COMFYUI_BASE_URL must use HTTPS outside loopback development."
+            )
     return raw.rstrip("/")
 
 
 def _load_comfy_workflow() -> dict[str, Any]:
     configured = os.getenv("COMFYUI_WORKFLOW_FILE", "").strip()
     if not configured:
-        raise ProviderUnavailable("Set COMFYUI_WORKFLOW_FILE to a ComfyUI API-format workflow JSON file.")
+        raise ProviderUnavailableError(
+            "Set COMFYUI_WORKFLOW_FILE to a ComfyUI API-format workflow JSON file."
+        )
     path = Path(configured).expanduser().resolve()
     if not path.is_file():
-        raise ProviderUnavailable("Configured COMFYUI_WORKFLOW_FILE does not exist.")
+        raise ProviderUnavailableError("Configured COMFYUI_WORKFLOW_FILE does not exist.")
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
-        raise ProviderUnavailable("Configured COMFYUI_WORKFLOW_FILE is not valid JSON.") from error
+        raise ProviderUnavailableError(
+            "Configured COMFYUI_WORKFLOW_FILE is not valid JSON."
+        ) from error
     if not isinstance(value, dict) or not value:
-        raise ProviderUnavailable("Configured ComfyUI workflow must be a non-empty JSON object.")
+        raise ProviderUnavailableError(
+            "Configured ComfyUI workflow must be a non-empty JSON object."
+        )
     return value
 
 
@@ -815,7 +823,7 @@ def _find_comfy_output(entry: dict[str, Any], output_node_id: str) -> dict[str, 
     outputs = entry.get("outputs")
     if not isinstance(outputs, dict):
         return None
-    nodes = outputs.items()
+    nodes: Iterable[tuple[Any, Any]] = outputs.items()
     if output_node_id:
         node = outputs.get(output_node_id)
         nodes = [(output_node_id, node)] if node is not None else []
@@ -893,9 +901,9 @@ def _comfy_int_env(name: str, default: int, *, minimum: int) -> int:
     try:
         value = int(os.getenv(name, str(default)))
     except ValueError as error:
-        raise ProviderUnavailable(f"{name} must be an integer.") from error
+        raise ProviderUnavailableError(f"{name} must be an integer.") from error
     if value < minimum:
-        raise ProviderUnavailable(f"{name} must be at least {minimum}.")
+        raise ProviderUnavailableError(f"{name} must be at least {minimum}.")
     return value
 
 
@@ -903,7 +911,7 @@ def _comfy_float_env(name: str, default: float, *, minimum: float) -> float:
     try:
         value = float(os.getenv(name, str(default)))
     except ValueError as error:
-        raise ProviderUnavailable(f"{name} must be a number.") from error
+        raise ProviderUnavailableError(f"{name} must be a number.") from error
     if value < minimum:
-        raise ProviderUnavailable(f"{name} must be at least {minimum}.")
+        raise ProviderUnavailableError(f"{name} must be at least {minimum}.")
     return value

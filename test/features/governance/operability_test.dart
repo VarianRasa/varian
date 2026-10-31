@@ -54,14 +54,19 @@ void main() {
     expect(response.body['version'], '1.0.0');
   });
 
-  test('health response contains an unhealthy result when a check throws', () {
+  test('health response hides check exception details', () {
     final registry = HealthCheckRegistry()
-      ..register('crashing-check', () => throw StateError('boom'));
+      ..register(
+        'crashing-check',
+        () => throw StateError('password=health-secret-fixture'),
+      );
 
     final response = registry.respond(now: now);
+    final checks = response.body['checks'] as List<Map<String, dynamic>>;
 
     expect(response.status, HealthStatus.unhealthy);
-    expect(response.body['checks'], contains(isA<Map<String, dynamic>>()));
+    expect(checks.single['message'], 'Health check failed.');
+    expect(response.encode(), isNot(contains('health-secret-fixture')));
   });
 
   test('support bundles redact sensitive fields', () {

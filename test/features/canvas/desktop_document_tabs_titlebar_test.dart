@@ -89,7 +89,15 @@ void main() {
 
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [openDocumentTabsProvider.overrideWith((ref) => tabs)],
+        overrides: [
+          openDocumentTabsProvider.overrideWith((ref) => tabs),
+          activeDocumentTabProvider.overrideWith(
+            (ref) => OpenDocumentTab(
+              projectId: 'local-titlebar-tab',
+              name: 'Local tab',
+            ),
+          ),
+        ],
         child: testApp(
           SizedBox(
             width: 500,
@@ -108,7 +116,9 @@ void main() {
 
     expect(
       tester.getSize(
-        find.byKey(const ValueKey('close-document-tab-local-titlebar-tab')),
+        find.byKey(
+          const ValueKey('close-document-tab-canvas::local-titlebar-tab'),
+        ),
       ),
       const Size(AppControlSize.extraSmall, 30),
     );

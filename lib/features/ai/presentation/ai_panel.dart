@@ -410,50 +410,81 @@ class _AIPanelState extends ConsumerState<AIPanel> {
                           : _selectedSourceChip(tokens),
                       const SizedBox(height: AppSpacing.xs),
                     ],
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Expanded(
-                          child: _buildComposer(state, notifier, compact: true),
-                        ),
-                        const SizedBox(width: AppSpacing.xs),
-                        if (!isNarrow)
-                          Tooltip(
-                            message: providerTooltip,
-                            child: UiBadge(
-                              hasCompatibleProvider ? 'READY' : 'SETUP',
-                              variant: hasCompatibleProvider
-                                  ? UiBadgeVariant.success
-                                  : UiBadgeVariant.warning,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
+                    LayoutBuilder(
+                      builder: (context, rowConstraints) {
+                        final narrowComposer = rowConstraints.maxWidth < 380;
+                        final controls = <Widget>[
+                          if (!isNarrow)
+                            Tooltip(
+                              message: providerTooltip,
+                              child: UiBadge(
+                                hasCompatibleProvider ? 'READY' : 'SETUP',
+                                variant: hasCompatibleProvider
+                                    ? UiBadgeVariant.success
+                                    : UiBadgeVariant.warning,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
+                          UiIconButton(
+                            key: const ValueKey(
+                              'ai-composer-provider-settings',
+                            ),
+                            icon: Icons.key_outlined,
+                            tooltip: 'AI provider settings',
+                            size: UiButtonSize.xs,
+                            color: hasCompatibleProvider
+                                ? null
+                                : tokens.warning,
+                            onPressed: () {
+                              showUiDialog(
+                                context: context,
+                                builder: (_) => const BackendSettingsDialog(),
+                              );
+                            },
                           ),
-                        UiIconButton(
-                          key: const ValueKey('ai-composer-provider-settings'),
-                          icon: Icons.key_outlined,
-                          tooltip: 'AI provider settings',
-                          size: UiButtonSize.xs,
-                          color: hasCompatibleProvider ? null : tokens.warning,
-                          onPressed: () {
-                            showUiDialog(
-                              context: context,
-                              builder: (_) => const BackendSettingsDialog(),
-                            );
-                          },
-                        ),
-                        UiIconButton(
-                          key: const ValueKey('ai-composer-options'),
-                          icon: Icons.tune_outlined,
-                          tooltip: _showOptions
-                              ? 'Hide AI options'
-                              : 'Show AI options',
-                          size: UiButtonSize.xs,
-                          selected: _showOptions,
-                          onPressed: () =>
-                              setState(() => _showOptions = !_showOptions),
-                        ),
-                      ],
+                          UiIconButton(
+                            key: const ValueKey('ai-composer-options'),
+                            icon: Icons.tune_outlined,
+                            tooltip: _showOptions
+                                ? 'Hide AI options'
+                                : 'Show AI options',
+                            size: UiButtonSize.xs,
+                            selected: _showOptions,
+                            onPressed: () =>
+                                setState(() => _showOptions = !_showOptions),
+                          ),
+                        ];
+                        return narrowComposer
+                            ? Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  _buildComposer(
+                                    state,
+                                    notifier,
+                                    compact: true,
+                                  ),
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: controls,
+                                  ),
+                                ],
+                              )
+                            : Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: _buildComposer(
+                                      state,
+                                      notifier,
+                                      compact: true,
+                                    ),
+                                  ),
+                                  const SizedBox(width: AppSpacing.xs),
+                                  ...controls,
+                                ],
+                              );
+                      },
                     ),
                     if (_showOptions) ...[
                       const SizedBox(height: AppSpacing.xs),
@@ -588,6 +619,7 @@ class _AIPanelState extends ConsumerState<AIPanel> {
       focusNode: compact ? widget.promptFocusNode : null,
       minLines: compact ? 1 : 2,
       maxLines: compact ? 4 : 5,
+      keyboardType: TextInputType.multiline,
       textInputAction: TextInputAction.newline,
       textAlignVertical: compact ? TextAlignVertical.top : null,
       onChanged: notifier.setPrompt,
@@ -709,10 +741,13 @@ class _AIPanelState extends ConsumerState<AIPanel> {
 
     if (compact) {
       return UiSurface(
-        padding: const EdgeInsets.all(AppSpacing.xxs),
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.xs,
+          vertical: AppSpacing.xxs,
+        ),
         color: tokens.panelElevated,
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             targetMenuButton,
             const SizedBox(width: AppSpacing.xxs),

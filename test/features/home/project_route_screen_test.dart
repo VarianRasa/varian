@@ -120,7 +120,8 @@ void main() {
 
     expect(find.byKey(const ValueKey('project-route-editor')), findsOneWidget);
     expect(find.byKey(const ValueKey('project-route-error')), findsNothing);
-    expect(find.text('Untitled Doc'), findsWidgets);
+    expect(find.text('Untitled Doc'), findsNothing);
+    expect(find.text('2026-09-28 12:00'), findsWidgets);
   });
 
   testWidgets('durable project data wins over stale SharedPreferences data', (

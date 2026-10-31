@@ -8,4 +8,5 @@ set -euo pipefail
 exec uvicorn tool.ai_3d_worker.app:app \
   --host 0.0.0.0 \
   --port "${AI_3D_WORKER_PORT:-20130}" \
-  --workers 1
+  --workers 1 \
+  --no-access-log

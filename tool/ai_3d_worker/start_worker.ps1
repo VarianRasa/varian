@@ -16,5 +16,5 @@ $env:AI_3D_DEFAULT_PROVIDER = $Provider
 if ($TripoSRRoot) { $env:TRIPOSR_ROOT = $TripoSRRoot }
 if ($TripoSRModel) { $env:TRIPOSR_MODEL = $TripoSRModel }
 if ($BlenderBin) { $env:BLENDER_BIN = $BlenderBin }
-& $PythonExecutable -m uvicorn tool.ai_3d_worker.app:app --host $HostAddress --port $Port
+& $PythonExecutable -m uvicorn tool.ai_3d_worker.app:app --host $HostAddress --port $Port --no-access-log
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

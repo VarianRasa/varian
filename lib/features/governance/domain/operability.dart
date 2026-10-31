@@ -112,7 +112,7 @@ class HealthCheckRegistry {
           HealthCheckResult(
             name: entry.key,
             status: HealthStatus.unhealthy,
-            message: 'Health check failed: $error',
+            message: 'Health check failed.',
           ),
         );
       }

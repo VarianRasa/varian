@@ -141,12 +141,42 @@ def write_demo_glb(path: Path) -> GLBInfo:
         (-1.0, 1.0, 1.0),
     ]
     indices = [
-        0, 1, 2, 0, 2, 3,
-        4, 6, 5, 4, 7, 6,
-        0, 4, 5, 0, 5, 1,
-        1, 5, 6, 1, 6, 2,
-        2, 6, 7, 2, 7, 3,
-        4, 0, 3, 4, 3, 7,
+        0,
+        1,
+        2,
+        0,
+        2,
+        3,
+        4,
+        6,
+        5,
+        4,
+        7,
+        6,
+        0,
+        4,
+        5,
+        0,
+        5,
+        1,
+        1,
+        5,
+        6,
+        1,
+        6,
+        2,
+        2,
+        6,
+        7,
+        2,
+        7,
+        3,
+        4,
+        0,
+        3,
+        4,
+        3,
+        7,
     ]
     position_bytes = struct.pack("<24f", *(value for point in positions for value in point))
     index_offset = _align4(len(position_bytes))
@@ -158,18 +188,22 @@ def write_demo_glb(path: Path) -> GLBInfo:
         "scene": 0,
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0, "name": "GeneratedDemoAsset"}],
-        "meshes": [{
-            "name": "GeneratedDemoMesh",
-            "primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}],
-        }],
-        "materials": [{
-            "name": "DemoMaterial",
-            "pbrMetallicRoughness": {
-                "baseColorFactor": [0.18, 0.48, 0.82, 1.0],
-                "metallicFactor": 0.05,
-                "roughnessFactor": 0.72,
-            },
-        }],
+        "meshes": [
+            {
+                "name": "GeneratedDemoMesh",
+                "primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}],
+            }
+        ],
+        "materials": [
+            {
+                "name": "DemoMaterial",
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.18, 0.48, 0.82, 1.0],
+                    "metallicFactor": 0.05,
+                    "roughnessFactor": 0.72,
+                },
+            }
+        ],
         "buffers": [{"byteLength": len(binary)}],
         "bufferViews": [
             {"buffer": 0, "byteOffset": 0, "byteLength": len(position_bytes), "target": 34962},

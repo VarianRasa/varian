@@ -19,6 +19,20 @@ class DesktopDocumentTabs extends ConsumerWidget {
     bool active,
   )?
   onCloseDocument;
+  final Future<void> Function(BuildContext context)? onCreateCanvas;
+  final Future<void> Function(BuildContext context)? onCreateNote;
+  final Future<void> Function(BuildContext context)? onOpenSavedCanvas;
+  final Future<void> Function(BuildContext context)? onOpenSavedNote;
+  final OpenDocumentTab? activeTab;
+  final Future<void> Function(BuildContext context, OpenDocumentTab tab)?
+  onSelectTypedTab;
+  final Future<void> Function(
+    BuildContext context,
+    OpenDocumentTab tab,
+    OpenDocumentTab? replacement,
+    bool active,
+  )?
+  onCloseTypedTab;
 
   const DesktopDocumentTabs({
     super.key,
@@ -26,7 +40,17 @@ class DesktopDocumentTabs extends ConsumerWidget {
     this.onCreateProject,
     this.onSelectDocument,
     this.onCloseDocument,
+    this.onCreateCanvas,
+    this.onCreateNote,
+    this.onOpenSavedCanvas,
+    this.onOpenSavedNote,
+    this.activeTab,
+    this.onSelectTypedTab,
+    this.onCloseTypedTab,
+    this.legacyCreateUsesNewMenu = false,
   });
+
+  final bool legacyCreateUsesNewMenu;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => DesktopDocumentTabStrip(
@@ -34,6 +58,14 @@ class DesktopDocumentTabs extends ConsumerWidget {
     onCreateProject: onCreateProject,
     onSelectDocument: onSelectDocument,
     onCloseDocument: onCloseDocument,
+    onCreateCanvas: onCreateCanvas,
+    onCreateNote: onCreateNote,
+    onOpenSavedCanvas: onOpenSavedCanvas,
+    onOpenSavedNote: onOpenSavedNote,
+    activeTab: activeTab,
+    onSelectTypedTab: onSelectTypedTab,
+    onCloseTypedTab: onCloseTypedTab,
+    legacyCreateUsesNewMenu: legacyCreateUsesNewMenu,
   );
 }
 
@@ -55,6 +87,21 @@ class DesktopDocumentTabStrip extends ConsumerWidget {
   final bool embedded;
   final bool titleBarStyle;
   final Widget? trailing;
+  final bool legacyCreateUsesNewMenu;
+  final Future<void> Function(BuildContext context)? onCreateCanvas;
+  final Future<void> Function(BuildContext context)? onCreateNote;
+  final Future<void> Function(BuildContext context)? onOpenSavedCanvas;
+  final Future<void> Function(BuildContext context)? onOpenSavedNote;
+  final OpenDocumentTab? activeTab;
+  final Future<void> Function(BuildContext context, OpenDocumentTab tab)?
+  onSelectTypedTab;
+  final Future<void> Function(
+    BuildContext context,
+    OpenDocumentTab tab,
+    OpenDocumentTab? replacement,
+    bool active,
+  )?
+  onCloseTypedTab;
 
   const DesktopDocumentTabStrip({
     super.key,
@@ -66,12 +113,27 @@ class DesktopDocumentTabStrip extends ConsumerWidget {
     this.embedded = false,
     this.titleBarStyle = false,
     this.trailing,
+    this.legacyCreateUsesNewMenu = false,
+    this.onCreateCanvas,
+    this.onCreateNote,
+    this.onOpenSavedCanvas,
+    this.onOpenSavedNote,
+    this.activeTab,
+    this.onSelectTypedTab,
+    this.onCloseTypedTab,
   });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final tokens = context.appTokens;
-    final tabs = ref.watch(openDocumentTabsProvider);
+    final tabs = openDocumentTabsFor(ref);
+    final selectedTab = ref.watch(activeDocumentTabProvider);
+    final currentTab =
+        activeTab ??
+        selectedTab ??
+        tabs
+            .where((tab) => tab.isCanvas && tab.documentId == activeProjectId)
+            .firstOrNull;
     final compact = MediaQuery.sizeOf(context).width < 520;
     final mutedForeground = tokens.textMuted;
 
@@ -103,31 +165,71 @@ class DesktopDocumentTabStrip extends ConsumerWidget {
                   for (var index = 0; index < tabs.length; index++)
                     _DocumentTab(
                       key: ValueKey(
-                        'document-tab-shell-${tabs[index].projectId}',
+                        'document-tab-shell-${tabs[index].identity}',
                       ),
                       tab: tabs[index],
-                      active: tabs[index].projectId == activeProjectId,
+                      active: tabs[index].identity == currentTab?.identity,
                       titleBarStyle: titleBarStyle,
                       onPressed:
-                          tabs[index].projectId == activeProjectId ||
-                              onSelectDocument == null
+                          tabs[index].identity == currentTab?.identity ||
+                              (tabs[index].isCanvas &&
+                                  onSelectDocument == null &&
+                                  onSelectTypedTab == null) ||
+                              (tabs[index].isNote && onSelectTypedTab == null)
                           ? null
                           : () => unawaited(
-                              onSelectDocument!(context, tabs[index]),
+                              tabs[index].isCanvas
+                                  ? onSelectDocument?.call(
+                                          context,
+                                          tabs[index],
+                                        ) ??
+                                        onSelectTypedTab!.call(
+                                          context,
+                                          tabs[index],
+                                        )
+                                  : onSelectTypedTab!.call(
+                                      context,
+                                      tabs[index],
+                                    ),
                             ),
-                      onClosePressed: onCloseDocument == null
+                      onClosePressed:
+                          onCloseDocument == null && onCloseTypedTab == null
                           ? null
                           : () => unawaited(
-                              onCloseDocument!(
-                                context,
-                                tabs[index],
-                                tabs.length <= 1
-                                    ? null
-                                    : index > 0
-                                    ? tabs[index - 1]
-                                    : tabs[index + 1],
-                                tabs[index].projectId == activeProjectId,
-                              ),
+                              (tabs[index].isCanvas
+                                  ? onCloseDocument?.call(
+                                          context,
+                                          tabs[index],
+                                          tabs.length <= 1
+                                              ? null
+                                              : tabs[index > 0
+                                                    ? index - 1
+                                                    : index + 1],
+                                          tabs[index].identity ==
+                                              currentTab?.identity,
+                                        ) ??
+                                        onCloseTypedTab!.call(
+                                          context,
+                                          tabs[index],
+                                          tabs.length <= 1
+                                              ? null
+                                              : tabs[index > 0
+                                                    ? index - 1
+                                                    : index + 1],
+                                          tabs[index].identity ==
+                                              currentTab?.identity,
+                                        )
+                                  : onCloseTypedTab!.call(
+                                      context,
+                                      tabs[index],
+                                      tabs.length <= 1
+                                          ? null
+                                          : tabs[index > 0
+                                                ? index - 1
+                                                : index + 1],
+                                      tabs[index].identity ==
+                                          currentTab?.identity,
+                                    )),
                             ),
                     ),
                 ],
@@ -135,7 +237,23 @@ class DesktopDocumentTabStrip extends ConsumerWidget {
             ],
           ),
         ),
-        if (onCreateProject != null || !titleBarStyle) ...[
+        if (onCreateCanvas != null ||
+            onCreateNote != null ||
+            onOpenSavedCanvas != null ||
+            onOpenSavedNote != null ||
+            (legacyCreateUsesNewMenu && onCreateProject != null)) ...[
+          Container(
+            width: AppBorder.thin,
+            height: 22,
+            color: tokens.panelBorder,
+          ),
+          _CreateDocumentButton(
+            titleBarStyle: titleBarStyle,
+            onPressed: () => unawaited(_showCreateMenu(context)),
+            legacyCreateUsesNewMenu: legacyCreateUsesNewMenu,
+          ),
+          SizedBox(width: titleBarStyle ? AppSpacing.xs : AppSpacing.sm),
+        ] else if (onCreateProject != null || !titleBarStyle) ...[
           Container(
             width: AppBorder.thin,
             height: 22,
@@ -166,6 +284,47 @@ class DesktopDocumentTabStrip extends ConsumerWidget {
       child: SizedBox(height: 42, child: content),
     );
   }
+
+  Future<void> _showCreateMenu(BuildContext context) async {
+    if (legacyCreateUsesNewMenu &&
+        onCreateCanvas == null &&
+        onCreateNote == null &&
+        onOpenSavedCanvas == null &&
+        onOpenSavedNote == null) {
+      await onCreateProject?.call(context);
+      return;
+    }
+    final box = context.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final origin = box.localToGlobal(Offset.zero);
+    final screen = MediaQuery.sizeOf(context);
+    final action = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        origin.dx,
+        origin.dy + box.size.height,
+        screen.width - origin.dx - box.size.width,
+        screen.height - origin.dy,
+      ),
+      items: const [
+        PopupMenuItem(value: 'new_canvas', child: Text('New blank Canvas')),
+        PopupMenuItem(value: 'new_note', child: Text('New blank Notes')),
+        PopupMenuItem(value: 'open_canvas', child: Text('Open saved Canvas')),
+        PopupMenuItem(value: 'open_note', child: Text('Open saved Notes')),
+      ],
+    );
+    if (!context.mounted || action == null) return;
+    switch (action) {
+      case 'new_canvas':
+        await (onCreateCanvas ?? onCreateProject)?.call(context);
+      case 'new_note':
+        await onCreateNote?.call(context);
+      case 'open_canvas':
+        await onOpenSavedCanvas?.call(context);
+      case 'open_note':
+        await onOpenSavedNote?.call(context);
+    }
+  }
 }
 
 class DocumentBreadcrumbSwitcher extends ConsumerWidget {
@@ -174,6 +333,12 @@ class DocumentBreadcrumbSwitcher extends ConsumerWidget {
     this.onCreateProject,
     this.onSelectDocument,
     this.onCloseDocument,
+    this.onSelectTypedTab,
+    this.onCloseTypedTab,
+    this.onCreateCanvas,
+    this.onCreateNote,
+    this.onOpenSavedCanvas,
+    this.onOpenSavedNote,
     super.key,
   });
 
@@ -188,14 +353,36 @@ class DocumentBreadcrumbSwitcher extends ConsumerWidget {
     bool active,
   )?
   onCloseDocument;
+  final Future<void> Function(BuildContext context, OpenDocumentTab tab)?
+  onSelectTypedTab;
+  final Future<void> Function(
+    BuildContext context,
+    OpenDocumentTab tab,
+    OpenDocumentTab? replacement,
+    bool active,
+  )?
+  onCloseTypedTab;
+  final Future<void> Function(BuildContext context)? onCreateCanvas;
+  final Future<void> Function(BuildContext context)? onCreateNote;
+  final Future<void> Function(BuildContext context)? onOpenSavedCanvas;
+  final Future<void> Function(BuildContext context)? onOpenSavedNote;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final pageContext = context;
-    final tabs = ref.watch(openDocumentTabsProvider);
+    final tabs = openDocumentTabsFor(ref);
+    final activeTab = ref.watch(activeDocumentTabProvider);
     final tokens = context.appTokens;
     final compact = MediaQuery.sizeOf(context).width < 640;
     final menuController = MenuController();
+    void runAction(Future<void> Function(BuildContext context)? action) {
+      if (action == null) return;
+      unawaited(() async {
+        menuController.close();
+        if (!pageContext.mounted) return;
+        await action(pageContext);
+      }());
+    }
 
     return MenuAnchor(
       key: const ValueKey('document-switcher-menu'),
@@ -205,24 +392,31 @@ class DocumentBreadcrumbSwitcher extends ConsumerWidget {
         for (var index = 0; index < tabs.length; index++)
           MenuItemButton(
             onPressed:
-                tabs[index].projectId == activeProjectId ||
-                    onSelectDocument == null
+                tabs[index].identity == activeTab?.identity ||
+                    (tabs[index].isCanvas &&
+                        onSelectDocument == null &&
+                        onSelectTypedTab == null) ||
+                    (tabs[index].isNote && onSelectTypedTab == null)
                 ? null
                 : () => unawaited(() async {
                     menuController.close();
                     if (!pageContext.mounted) return;
-                    await onSelectDocument!(pageContext, tabs[index]);
+                    if (tabs[index].isCanvas && onSelectDocument != null) {
+                      await onSelectDocument!(pageContext, tabs[index]);
+                    } else {
+                      await onSelectTypedTab?.call(pageContext, tabs[index]);
+                    }
                   }()),
             leadingIcon: Icon(
-              tabs[index].projectId == activeProjectId
-                  ? Icons.description
+              tabs[index].isNote
+                  ? Icons.sticky_note_2_outlined
                   : Icons.description_outlined,
             ),
-            trailingIcon: onCloseDocument == null
+            trailingIcon: onCloseDocument == null && onCloseTypedTab == null
                 ? null
                 : UiIconButton(
                     key: ValueKey(
-                      'close-document-switcher-${tabs[index].projectId}',
+                      'close-document-switcher-${tabs[index].identity}',
                     ),
                     icon: Icons.close,
                     tooltip: 'Close ${tabs[index].name}',
@@ -230,15 +424,16 @@ class DocumentBreadcrumbSwitcher extends ConsumerWidget {
                     onPressed: () => unawaited(() async {
                       menuController.close();
                       if (!pageContext.mounted) return;
-                      await onCloseDocument!(
+                      final close = tabs[index].isCanvas
+                          ? onCloseDocument ?? onCloseTypedTab
+                          : onCloseTypedTab;
+                      await close?.call(
                         pageContext,
                         tabs[index],
                         tabs.length <= 1
                             ? null
-                            : index > 0
-                            ? tabs[index - 1]
-                            : tabs[index + 1],
-                        tabs[index].projectId == activeProjectId,
+                            : tabs[index > 0 ? index - 1 : index + 1],
+                        tabs[index].identity == activeTab?.identity,
                       );
                     }()),
                   ),
@@ -248,14 +443,42 @@ class DocumentBreadcrumbSwitcher extends ConsumerWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-        if (onCreateProject != null)
+        if (onCreateCanvas != null || onCreateProject != null)
+          MenuItemButton(
+            key: const ValueKey('switcher-create-canvas'),
+            leadingIcon: const Icon(Icons.add),
+            onPressed: () => runAction(onCreateCanvas ?? onCreateProject),
+            child: const Text('New blank Canvas'),
+          ),
+        if (onCreateNote != null)
+          MenuItemButton(
+            key: const ValueKey('switcher-create-note'),
+            leadingIcon: const Icon(Icons.note_add_outlined),
+            onPressed: () => runAction(onCreateNote),
+            child: const Text('New blank Notes'),
+          ),
+        if (onOpenSavedCanvas != null)
+          MenuItemButton(
+            key: const ValueKey('switcher-open-saved-canvas'),
+            leadingIcon: const Icon(Icons.folder_open_outlined),
+            onPressed: () => runAction(onOpenSavedCanvas),
+            child: const Text('Open saved Canvas'),
+          ),
+        if (onOpenSavedNote != null)
+          MenuItemButton(
+            key: const ValueKey('switcher-open-saved-note'),
+            leadingIcon: const Icon(Icons.sticky_note_2_outlined),
+            onPressed: () => runAction(onOpenSavedNote),
+            child: const Text('Open saved Notes'),
+          ),
+        if (onCreateProject != null &&
+            onCreateCanvas == null &&
+            onCreateNote == null &&
+            onOpenSavedCanvas == null &&
+            onOpenSavedNote == null)
           MenuItemButton(
             leadingIcon: const Icon(Icons.add),
-            onPressed: () => unawaited(() async {
-              menuController.close();
-              if (!pageContext.mounted) return;
-              await onCreateProject!(pageContext);
-            }()),
+            onPressed: () => runAction(onCreateProject),
             child: const Text('New document'),
           ),
       ],
@@ -295,10 +518,12 @@ class DocumentBreadcrumbSwitcher extends ConsumerWidget {
 class _CreateDocumentButton extends StatelessWidget {
   final bool titleBarStyle;
   final VoidCallback? onPressed;
+  final bool legacyCreateUsesNewMenu;
 
   const _CreateDocumentButton({
     required this.titleBarStyle,
     required this.onPressed,
+    this.legacyCreateUsesNewMenu = false,
   });
 
   @override
@@ -308,7 +533,9 @@ class _CreateDocumentButton extends StatelessWidget {
       return UiIconButton(
         key: const ValueKey('create-project-tab'),
         icon: Icons.add,
-        tooltip: 'Create new project',
+        tooltip: legacyCreateUsesNewMenu
+            ? 'Create or open document'
+            : 'Create new project',
         onPressed: onPressed,
       );
     }
@@ -320,7 +547,9 @@ class _CreateDocumentButton extends StatelessWidget {
         key: const ValueKey('create-project-tab'),
         icon: Icons.add,
         iconSize: 15,
-        tooltip: 'Create new project',
+        tooltip: legacyCreateUsesNewMenu
+            ? 'Create or open document'
+            : 'Create new project',
         onPressed: onPressed,
         size: UiButtonSize.xs,
         color: tokens.text,
@@ -360,8 +589,7 @@ class _DocumentTabState extends State<_DocumentTab> {
   void didUpdateWidget(covariant _DocumentTab oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.active &&
-        (!oldWidget.active ||
-            oldWidget.tab.projectId != widget.tab.projectId)) {
+        (!oldWidget.active || oldWidget.tab.identity != widget.tab.identity)) {
       _ensureVisibleIfActive();
     }
   }
@@ -424,8 +652,9 @@ class _DocumentTabState extends State<_DocumentTab> {
                       child: InkWell(
                         onTap: widget.onPressed,
                         child: Semantics(
-                          key: ValueKey('document-tab-${widget.tab.projectId}'),
-                          label: 'Open document ${widget.tab.name}',
+                          key: ValueKey('document-tab-${widget.tab.identity}'),
+                          label:
+                              'Open ${widget.tab.isNote ? 'note' : 'document'} ${widget.tab.name}',
                           button: true,
                           child: Padding(
                             padding: EdgeInsets.symmetric(
@@ -469,7 +698,7 @@ class _DocumentTabState extends State<_DocumentTab> {
                     widget.titleBarStyle
                         ? _TitleBarIconButton(
                             key: ValueKey(
-                              'close-document-tab-${widget.tab.projectId}',
+                              'close-document-tab-${widget.tab.identity}',
                             ),
                             icon: Icons.close,
                             tooltip: 'Close ${widget.tab.name}',
@@ -477,7 +706,7 @@ class _DocumentTabState extends State<_DocumentTab> {
                           )
                         : UiIconButton(
                             key: ValueKey(
-                              'close-document-tab-${widget.tab.projectId}',
+                              'close-document-tab-${widget.tab.identity}',
                             ),
                             icon: Icons.close,
                             tooltip: 'Close ${widget.tab.name}',

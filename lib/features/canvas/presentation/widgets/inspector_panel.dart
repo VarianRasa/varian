@@ -10038,11 +10038,15 @@ class InspectorPanel extends ConsumerWidget {
     ValueChanged<Color> onColorChanged,
   ) {
     final tokens = context.appTokens;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(label, style: TextStyle(color: tokens.text, fontSize: 12)),
-        UiButton(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final labelText = Text(
+          label,
+          style: TextStyle(color: tokens.text, fontSize: 12),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        );
+        final colorPicker = UiButton(
           semanticsLabel: 'Pick $label',
           variant: UiButtonVariant.ghost,
           size: UiButtonSize.sm,
@@ -10068,8 +10072,21 @@ class InspectorPanel extends ConsumerWidget {
               border: Border.all(color: tokens.panelBorder, width: 1.2),
             ),
           ),
-        ),
-      ],
+        );
+        if (constraints.maxWidth < 280) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: labelText),
+              colorPicker,
+            ],
+          );
+        }
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [labelText, colorPicker],
+        );
+      },
     );
   }
 

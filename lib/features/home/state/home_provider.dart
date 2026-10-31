@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:varian/app/workspace_timestamp.dart';
 import 'package:uuid/uuid.dart';
 import '../../../data/local/account_scoped_local_storage.dart';
 import '../../../data/local/durable/project_session.dart';
@@ -32,6 +35,7 @@ final homeProjectAdoptionEligibilityProvider =
           ?.where((candidate) => candidate.id == projectId)
           .firstOrNull;
       if (project == null ||
+          project.cloudDeletionDetached ||
           project.cloudOwnerId != null ||
           project.isCollaborationRoom ||
           project.status == ProjectStatus.trashed) {
@@ -73,6 +77,18 @@ class HomeProjectsNotifier
                 project.cloudOwnerId == currentAccountId,
           )
           .toList();
+      list = await _renameLegacyUntitledProjects(list, currentAccountId);
+      if (_currentAccountId() != currentAccountId) {
+        list = await _storageService.getProjects();
+        final nowCurrentAccountId = _currentAccountId();
+        list = list
+            .where(
+              (project) =>
+                  project.cloudOwnerId == null ||
+                  project.cloudOwnerId == nowCurrentAccountId,
+            )
+            .toList();
+      }
       list.sort((a, b) {
         if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
         return b.updatedAt.compareTo(a.updatedAt);
@@ -97,7 +113,8 @@ class HomeProjectsNotifier
     final projects = await _storageService.getProjects();
     final project = projects.where((item) => item.id == projectId).firstOrNull;
     if (project == null) throw StateError('Project not found: $projectId');
-    if ((project.cloudOwnerId != null &&
+    if (project.cloudDeletionDetached ||
+        (project.cloudOwnerId != null &&
             !(project.cloudOwnerId == accountId &&
                 project.cloudMetadataSyncPending)) ||
         project.isCollaborationRoom ||
@@ -164,6 +181,7 @@ class HomeProjectsNotifier
         .where((item) => item.id == projectId)
         .firstOrNull;
     if (project == null ||
+        project.cloudDeletionDetached ||
         project.cloudAdoptionPendingAccountId != accountId ||
         project.isCollaborationRoom ||
         project.status == ProjectStatus.trashed ||
@@ -227,6 +245,7 @@ class HomeProjectsNotifier
         );
       }
       if (latestProject == null ||
+          latestProject.cloudDeletionDetached ||
           latestProject.cloudAdoptionPendingAccountId != accountId ||
           latestProject.isCollaborationRoom ||
           latestProject.status == ProjectStatus.trashed ||
@@ -493,12 +512,62 @@ class HomeProjectsNotifier
     return mergedProjects;
   }
 
+  Future<List<LocalProjectMetadata>> _renameLegacyUntitledProjects(
+    List<LocalProjectMetadata> projects,
+    String? accountId,
+  ) async {
+    var updatedAny = false;
+    for (final project in projects) {
+      final ownerId = project.cloudOwnerId;
+      if (project.name != 'Untitled Doc' ||
+          project.isCollaborationRoom ||
+          (ownerId != null && ownerId != accountId)) {
+        continue;
+      }
+      final renamed = project.copyWith(
+        name: formatWorkspaceTimestamp(project.createdAt),
+        cloudMetadataSyncPending: ownerId == null
+            ? project.cloudMetadataSyncPending
+            : true,
+      );
+      if (ownerId == null) {
+        final saved = await _storageService
+            .saveProjectMetadataIfRevisionUnchanged(
+              renamed,
+              expectedRevision: project.localMetadataRevision,
+            );
+        updatedAny = updatedAny || saved;
+        continue;
+      }
+      if (accountId == null || !_isAdoptionAccountCurrent(accountId)) continue;
+      final pending = renamed.copyWith(cloudMetadataSyncPending: true);
+      final saved = await _storageService
+          .saveProjectMetadataIfRevisionUnchanged(
+            pending,
+            expectedRevision: project.localMetadataRevision,
+            shouldWrite: () => _isAdoptionAccountCurrent(accountId),
+          );
+      if (!saved) continue;
+      updatedAny = true;
+      try {
+        await _syncOwnedProjectMetadata(pending);
+      } catch (error) {
+        debugPrint('[HomeProjects] Legacy title sync failed: $error');
+      }
+    }
+    return updatedAny ? _storageService.getProjects() : projects;
+  }
+
   Future<LocalProjectMetadata> createProject(String name) async {
+    final now = DateTime.now();
+    final normalizedName = name.trim();
     final meta = LocalProjectMetadata(
       id: const Uuid().v4(),
-      name: name.trim().isEmpty ? 'Untitled Project' : name.trim(),
-      createdAt: DateTime.now(),
-      updatedAt: DateTime.now(),
+      name: normalizedName.isEmpty || normalizedName == 'Untitled Doc'
+          ? formatWorkspaceTimestamp(now)
+          : normalizedName,
+      createdAt: now,
+      updatedAt: now,
     );
     await _storageService.saveProjectMetadata(meta);
     await loadProjects();
@@ -509,6 +578,75 @@ class HomeProjectsNotifier
     await _storageService.deleteProject(id);
     await _openDocumentTabs.close(id);
     await loadProjects();
+  }
+
+  Future<void> detachDeletedCloudProject({
+    required String projectId,
+    required String expectedAccountId,
+  }) async {
+    if (!_isAdoptionAccountCurrent(expectedAccountId)) {
+      throw const SyncException(
+        'The cloud account changed during this action.',
+      );
+    }
+
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final current = (await _storageService.getProjects())
+          .where((project) => project.id == projectId)
+          .firstOrNull;
+      if (current == null) throw StateError('Project not found: $projectId');
+      if (current.cloudOwnerId == null) return;
+      if (current.cloudOwnerId != expectedAccountId ||
+          current.isCollaborationRoom) {
+        throw const SyncException('This project is not owned by this account.');
+      }
+      if (!_isAdoptionAccountCurrent(expectedAccountId)) {
+        throw const SyncException(
+          'The cloud account changed during this action.',
+        );
+      }
+
+      final localCopy = current.copyWith(
+        clearCloudOwnerId: true,
+        clearCloudUpdatedAt: true,
+        cloudMetadataSyncPending: false,
+        clearCloudAdoptionPendingAccountId: true,
+        cloudDeletionDetached: true,
+      );
+      final saved = await _storageService
+          .saveProjectMetadataIfRevisionUnchanged(
+            localCopy,
+            expectedRevision: current.localMetadataRevision,
+            shouldWrite: () => _isAdoptionAccountCurrent(expectedAccountId),
+          );
+      if (!saved) continue;
+      if (!_isAdoptionAccountCurrent(expectedAccountId)) {
+        throw const SyncException(
+          'The cloud account changed during this action.',
+        );
+      }
+      final latest = (await _storageService.getProjects())
+          .where((project) => project.id == projectId)
+          .firstOrNull;
+      if (latest != null && latest.cloudOwnerId == null) {
+        final projects = await _storageService.getProjects();
+        final currentAccountId = _currentAccountId();
+        final visibleProjects = projects
+            .where(
+              (project) =>
+                  project.cloudOwnerId == null ||
+                  project.cloudOwnerId == currentAccountId,
+            )
+            .toList();
+        visibleProjects.sort((a, b) {
+          if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+          return b.updatedAt.compareTo(a.updatedAt);
+        });
+        state = AsyncValue.data(visibleProjects);
+      }
+      return;
+    }
+    throw StateError('The local project changed repeatedly during detachment.');
   }
 
   Future<void> moveProjectsToTrash(Iterable<String> ids) async {

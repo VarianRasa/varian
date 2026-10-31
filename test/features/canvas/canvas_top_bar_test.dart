@@ -22,6 +22,8 @@ import 'package:varian/features/canvas/presentation/widgets/inspector_panel.dart
 import 'package:varian/features/canvas/presentation/widgets/layers_panel.dart';
 import 'package:varian/features/canvas/presentation/widgets/panel_visibility_toggle.dart';
 import 'package:varian/features/canvas/state/open_document_tabs_provider.dart';
+import 'package:varian/domain/models/collaboration.dart';
+import 'package:varian/features/collaboration/state/collaboration_session_provider.dart';
 import 'package:varian/features/canvas/presentation/widgets/color_picker_primitives.dart';
 import 'package:varian/features/canvas/presentation/widgets/toolbar.dart';
 import 'package:varian/features/canvas/state/autosave_controller.dart';
@@ -53,6 +55,9 @@ void main() {
         overrides: [
           autosaveControllerProvider.overrideWith(
             (ref) => _NoopAutosaveController(ref),
+          ),
+          collaborationVerifiedRoleForTestingProvider.overrideWithValue(
+            CollaborationRole.owner,
           ),
         ],
         child: testApp(
@@ -200,7 +205,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('document-switcher-menu')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New document'));
+    await tester.tap(find.text('New blank Canvas'));
     await tester.pumpAndSettle();
 
     expect(createRequested, isTrue);
@@ -509,8 +514,18 @@ void main() {
         width >= 420 ? findsOneWidget : findsNothing,
       );
       for (final button in [layersButton, inspectorButton]) {
-        expect(find.descendant(of: appBar, matching: button), findsOneWidget);
+        expect(
+          find.descendant(of: appBar, matching: button),
+          width >= 600 ? findsOneWidget : findsNothing,
+        );
       }
+      final workspaceButton = find.byKey(
+        const ValueKey('canvas-panel-toggle-workspace'),
+      );
+      expect(
+        find.descendant(of: appBar, matching: workspaceButton),
+        width >= 600 ? findsOneWidget : findsNothing,
+      );
       expect(find.byKey(const ValueKey('canvas-toggle-layers')), findsNothing);
       expect(
         find.byKey(const ValueKey('canvas-toggle-inspector')),
@@ -528,8 +543,22 @@ void main() {
       expect(find.byTooltip('More canvas actions'), findsOneWidget);
       expect(find.byTooltip('Settings'), findsOneWidget);
       expect(find.byTooltip('Panels'), findsNothing);
-      expect(find.byTooltip('Show Layers panel'), findsOneWidget);
-      expect(find.byTooltip('Show Inspector panel'), findsOneWidget);
+      expect(
+        find.byTooltip('Show Layers panel'),
+        width >= 600 ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text('Show Layers panel'),
+        width < 600 ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.byTooltip('Show Inspector panel'),
+        width >= 600 ? findsOneWidget : findsNothing,
+      );
+      expect(
+        find.text('Show Inspector panel'),
+        width < 600 ? findsOneWidget : findsNothing,
+      );
       expect(find.byTooltip('Show AI Studio panel'), findsNothing);
       expect(
         find.descendant(
@@ -581,6 +610,10 @@ void main() {
     expect(
       find.byKey(const ValueKey('canvas-panel-toggle-inspector')),
       findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey('canvas-panel-toggle-workspace')),
+      findsOneWidget,
     );
     expect(
       find.byKey(const ValueKey('canvas-panel-toggle-ai-studio')),
@@ -721,11 +754,9 @@ void main() {
         onCreateProject: (_) async {},
       );
       if (width == 1180) {
+        expect(find.byTooltip('Workspace'), findsNothing);
         expect(
-          find.descendant(
-            of: find.byType(AppBar),
-            matching: find.byTooltip('Project Library'),
-          ),
+          find.byKey(const ValueKey('canvas-panel-toggle-workspace')),
           findsOneWidget,
         );
         expect(
@@ -803,12 +834,14 @@ void main() {
     final stripBorder =
         (tabStrip.decoration as BoxDecoration).border! as Border;
     expect(stripBorder.bottom.width, AppBorder.thin);
-    expect(find.byKey(const ValueKey('document-tab-one')), findsOneWidget);
-    expect(find.byKey(const ValueKey('document-tab-two')), findsOneWidget);
+    final firstTabKey = const ValueKey('document-tab-canvas::one');
+    final secondTabKey = const ValueKey('document-tab-canvas::two');
+    expect(find.byKey(firstTabKey), findsOneWidget);
+    expect(find.byKey(secondTabKey), findsOneWidget);
     final inactiveTab = tester.widget<DecoratedBox>(
       find
           .ancestor(
-            of: find.byKey(const ValueKey('document-tab-one')),
+            of: find.byKey(firstTabKey),
             matching: find.byType(DecoratedBox),
           )
           .first,
@@ -818,19 +851,23 @@ void main() {
       BorderRadius.circular(AppRadius.control),
     );
 
-    await tester.tap(find.byKey(const ValueKey('close-document-tab-one')));
+    await tester.tap(
+      find.byKey(const ValueKey('close-document-tab-canvas::one')),
+    );
     await tester.pumpAndSettle();
     expect(closed?.projectId, 'one');
     expect(replacement?.projectId, 'two');
     expect(closedActive, isFalse);
-    expect(find.byKey(const ValueKey('document-tab-one')), findsNothing);
+    expect(find.byKey(firstTabKey), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('close-document-tab-two')));
+    await tester.tap(
+      find.byKey(const ValueKey('close-document-tab-canvas::two')),
+    );
     await tester.pumpAndSettle();
     expect(closed?.projectId, 'two');
     expect(replacement, isNull);
     expect(closedActive, isTrue);
-    expect(find.byKey(const ValueKey('document-tab-two')), findsNothing);
+    expect(find.byKey(secondTabKey), findsNothing);
   });
 
   testWidgets('keeps the Windows title bar clear of document tabs', (
@@ -1046,12 +1083,17 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('keeps core actions visible and groups secondary actions', (
+  testWidgets('keeps the dashboard action and groups secondary actions', (
     tester,
   ) async {
     await pumpCanvas(tester);
 
     expect(find.byTooltip('Back to Dashboard'), findsOneWidget);
+    expect(find.byTooltip('Workspace'), findsNothing);
+    expect(
+      find.byKey(const ValueKey('canvas-panel-toggle-workspace')),
+      findsOneWidget,
+    );
     expect(find.byTooltip('Search (Ctrl+F)'), findsOneWidget);
     expect(find.byTooltip('Settings'), findsOneWidget);
     expect(find.byTooltip('More canvas actions'), findsOneWidget);
@@ -1083,15 +1125,13 @@ void main() {
       'Quick Capture (Ctrl/Cmd+K)',
       'Insert Flowchart Template',
       'Play Presentation Mode',
-      'Layers',
-      'Inspector',
       'Theme: System',
       'Backend & Live Integrations',
     ]) {
       expect(find.text(label), findsOneWidget);
     }
-    expect(find.text('Enable'), findsNWidgets(2));
-    expect(find.text('Disable'), findsNWidgets(2));
+    expect(find.text('Enable'), findsNWidgets(4));
+    expect(find.text('Disable'), findsNWidgets(4));
   });
 
   testWidgets('keeps desktop zoom controls visible and resets to 100%', (
@@ -1215,17 +1255,37 @@ void main() {
     expect(composer, findsOneWidget);
     expect(find.byKey(const ValueKey('ai-prompt-field')), findsOneWidget);
     expect(find.byKey(const ValueKey('ai-generation-target')), findsOneWidget);
-    expect(
-      find.byKey(const ValueKey('ai-composer-provider-settings')),
-      findsOneWidget,
+    final providerSettings = find.byKey(
+      const ValueKey('ai-composer-provider-settings'),
     );
+    final optionsButton = find.byKey(const ValueKey('ai-composer-options'));
+    final sendButton = find.byKey(const ValueKey('ai-composer-send'));
+    expect(providerSettings, findsOneWidget);
+    expect(optionsButton, findsOneWidget);
+    expect(sendButton, findsOneWidget);
+    expect(find.text('SETUP'), findsOneWidget);
 
     final composerRect = tester.getRect(composer);
+    final composerCenterY = composerRect.center.dy;
+    for (final control in [
+      find.byKey(const ValueKey('ai-generation-target')),
+      sendButton,
+      find.text('SETUP'),
+      providerSettings,
+      optionsButton,
+    ]) {
+      expect(
+        tester.getRect(control).center.dy,
+        closeTo(composerCenterY, 2),
+        reason: 'Compact AI controls should share one vertical centerline.',
+      );
+    }
+
     final canvasRect = tester.getRect(
       find.byKey(const ValueKey('diagram-shape-drop-target')),
     );
     expect(composerRect.width, lessThanOrEqualTo(560));
-    expect(composerRect.height, lessThan(80));
+    expect(composerRect.height, lessThanOrEqualTo(120));
     expect(composerRect.center.dx, closeTo(canvasRect.center.dx, 1));
     expect(composerRect.bottom, lessThanOrEqualTo(canvasRect.bottom));
     expect(
@@ -1280,16 +1340,31 @@ void main() {
     );
     expect(composer.left, greaterThanOrEqualTo(0));
     expect(composer.right, lessThanOrEqualTo(390));
-    final inspectorButton = find.byKey(
-      const ValueKey('canvas-panel-toggle-inspector'),
+    for (final control in [
+      find.byKey(const ValueKey('ai-generation-target')),
+      find.byKey(const ValueKey('ai-composer-send')),
+      find.byKey(const ValueKey('ai-composer-provider-settings')),
+      find.byKey(const ValueKey('ai-composer-options')),
+    ]) {
+      final controlRect = tester.getRect(control);
+      expect(controlRect.left, greaterThanOrEqualTo(0));
+      expect(controlRect.right, lessThanOrEqualTo(390));
+    }
+    final compactActions = find.byKey(
+      const ValueKey('ui-compact-actions-menu'),
     );
-    expect(find.byTooltip('Show Inspector panel'), findsOneWidget);
-    await tester.tap(inspectorButton);
+    expect(compactActions, findsOneWidget);
+    await tester.tap(compactActions);
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Hide Inspector panel'), findsOneWidget);
+    await tester.tap(find.text('Show Inspector panel'));
+    await tester.pumpAndSettle();
+    expect(find.text('NO SELECTION'), findsOneWidget);
     await tester.tapAt(const Offset(200, 400));
     await tester.pumpAndSettle();
-    expect(find.byTooltip('Show Inspector panel'), findsOneWidget);
+    expect(find.text('NO SELECTION'), findsNothing);
+    await tester.tap(compactActions);
+    await tester.pumpAndSettle();
+    expect(find.text('Show Inspector panel'), findsOneWidget);
     expect(find.byTooltip('Expand minimap'), findsOneWidget);
     expect(find.text('NO SELECTION'), findsNothing);
     expect(tester.takeException(), isNull);
@@ -1358,6 +1433,13 @@ void main() {
     expect(find.byKey(const ValueKey('canvas-panels-menu')), findsNothing);
     for (final button in [layersButton, inspectorButton]) {
       expect(find.descendant(of: appBar, matching: button), findsOneWidget);
+      expect(
+        find.descendant(
+          of: button,
+          matching: find.byType(SidebarPanelToggleIcon),
+        ),
+        findsOneWidget,
+      );
     }
     expect(
       find.byKey(const ValueKey('canvas-panel-toggle-ai-studio')),
@@ -1447,6 +1529,7 @@ void main() {
       expect(toolsEntry, findsOneWidget);
       await tester.tap(toolsEntry);
       await tester.pumpAndSettle();
+      expect(find.text('Share workspace'), findsOneWidget);
       await tester.tap(find.text('Share workspace'));
       await tester.pumpAndSettle();
 
@@ -2046,33 +2129,61 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets('AI toolbar action focuses the prompt separately from tools', (
+  testWidgets('AI toolbar action exposes its open/closed state', (
     tester,
   ) async {
     var aiOpened = false;
+    var aiActive = true;
     await tester.pumpWidget(
       ProviderScope(
-        child: testApp(CanvasToolbar(onAiPressed: () => aiOpened = true)),
+        child: testApp(
+          StatefulBuilder(
+            builder: (context, setState) => CanvasToolbar(
+              aiActive: aiActive,
+              onAiPressed: () {
+                aiOpened = !aiOpened;
+                setState(() => aiActive = !aiActive);
+              },
+            ),
+          ),
+        ),
       ),
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Focus AI prompt'));
-    await tester.pump();
-
+    final hidePrompt = find.byTooltip('Hide AI prompt');
+    expect(hidePrompt, findsOneWidget);
+    await tester.tap(hidePrompt);
+    await tester.pumpAndSettle();
     expect(aiOpened, isTrue);
+    expect(find.byTooltip('Show AI prompt'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
-  testWidgets('AI toolbar focuses the always-visible canvas prompt', (
+  testWidgets('AI toolbar toggles the canvas prompt visibility', (
     tester,
   ) async {
     await pumpCanvas(tester);
 
     final prompt = find.byKey(const ValueKey('ai-prompt-field'));
-    await tester.tap(find.byTooltip('Focus AI prompt'));
-    await tester.pump();
+    expect(prompt, findsOneWidget);
+    expect(find.byTooltip('Hide AI prompt'), findsOneWidget);
 
+    await tester.tap(find.byTooltip('Hide AI prompt'));
+    await tester.pumpAndSettle();
+    expect(prompt, findsNothing);
+    expect(
+      find.byKey(const ValueKey('diagram-shape-drop-target')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Show AI prompt'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip('Show AI prompt'));
+    await tester.pumpAndSettle();
+    expect(prompt, findsOneWidget);
     expect(tester.widget<UiTextField>(prompt).focusNode!.hasFocus, isTrue);
+    expect(find.byTooltip('Hide AI prompt'), findsOneWidget);
     expect(find.byKey(const ValueKey('ai-panel-shell')), findsNothing);
     expect(tester.takeException(), isNull);
   });

@@ -6,12 +6,11 @@ A Flutter canvas application.
 
 Read [`AGENTS.md`](AGENTS.md) for the project map, development conventions, safety boundaries, and focused validation commands. From a fresh checkout with Flutter installed, install dependencies and launch the interactive Web app:
 
-```sh
-flutter pub get
-flutter run -d chrome
+```powershell
+.\tool\run_flutter_web.ps1
 ```
 
-This uses the app's existing Supabase Auth flow and checked-in public client configuration. Sign in with a dedicated test account on a disposable Supabase project for authenticated cloud workflows; do not use production accounts or credentials in automated tests. The Flutter widget and service tests use local fakes/mocked HTTP clients and do not require a Supabase login. Run the app boot and interactive auth-screen smoke tests with:
+The script installs dependencies and launches the Web app in Chrome. This uses the app's existing Supabase Auth flow and checked-in public client configuration. Sign in with a dedicated test account on a disposable Supabase project for authenticated cloud workflows; do not use production accounts or credentials in automated tests. The Flutter widget and service tests use local fakes/mocked HTTP clients and do not require a Supabase login. Run the app boot and interactive auth-screen smoke tests with:
 
 ```sh
 flutter test --no-pub test/widget_test.dart test/features/auth/auth_screen_test.dart

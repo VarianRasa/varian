@@ -365,14 +365,20 @@ class _CanvasToolbarState extends ConsumerState<CanvasToolbar> {
                       final displayIcon =
                           activeToolInCategory?.icon ?? cat.defaultIcon;
 
+                      final categoryTooltip = cat.id == 'ai'
+                          ? widget.aiActive
+                                ? 'Hide AI prompt'
+                                : 'Show AI prompt'
+                          : '${cat.title} (Click to open)';
+
                       return Tooltip(
-                        message: cat.id == 'ai'
-                            ? 'Focus AI prompt'
-                            : '${cat.title} (Click to open)',
+                        message: categoryTooltip,
                         preferBelow: false,
                         child: Semantics(
                           button: true,
-                          label: '${cat.title} tools',
+                          label: cat.id == 'ai'
+                              ? categoryTooltip
+                              : '${cat.title} tools',
                           selected: isCategoryActive,
                           expanded: isExpanded,
                           child: Material(

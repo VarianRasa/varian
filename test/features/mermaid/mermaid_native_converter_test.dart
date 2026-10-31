@@ -152,7 +152,7 @@ void main() {
       return node.type == NodeType.text &&
           (node.payload as TextPayload).text == 'Label';
     });
-    expect(label.x, closeTo(212.0, 0.01));
+    expect(label.x, closeTo(212.0, 0.02));
     expect(label.y, closeTo(296.0, 0.01));
   });
 

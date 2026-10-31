@@ -2176,7 +2176,7 @@ class CrdtDocumentSession {
           for (final entry in rawRaster.entries)
             if (entry.key is String && entry.value is List)
               entry.key as String: [
-                for (final value in entry.value)
+                for (final value in entry.value as List)
                   if (value is Map) Map<String, dynamic>.from(value),
               ],
         });

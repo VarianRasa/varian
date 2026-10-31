@@ -1,10 +1,142 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:varian/app/theme.dart';
 import 'package:varian/app/widgets/ui_primitives.dart';
 
 void main() {
+  testWidgets('sidebar toggle icon paints each side and expanded state', (
+    tester,
+  ) async {
+    const configurations = [
+      (SidebarPanelSide.left, true),
+      (SidebarPanelSide.left, false),
+      (SidebarPanelSide.right, true),
+      (SidebarPanelSide.right, false),
+    ];
+    final painters = <SidebarPanelTogglePainter>[];
+
+    for (final (side, expanded) in configurations) {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AppThemeScope(
+            data: AppTheme.darkTheme,
+            child: Scaffold(
+              body: Center(
+                child: UiIconButton(
+                  icon: Icons.layers_outlined,
+                  iconWidget: SidebarPanelToggleIcon(
+                    side: side,
+                    expanded: expanded,
+                  ),
+                  tooltip: 'Toggle panel',
+                  selected: expanded,
+                  onPressed: () {},
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final painter = tester.widget<CustomPaint>(
+        find.descendant(
+          of: find.byType(SidebarPanelToggleIcon),
+          matching: find.byType(CustomPaint),
+        ),
+      );
+      expect(painter.size, const Size.square(16));
+      expect(painter.painter, isA<SidebarPanelTogglePainter>());
+      final config = painter.painter! as SidebarPanelTogglePainter;
+      expect(config.side, side);
+      expect(config.expanded, expanded);
+      painters.add(config);
+      final buttonSemantics = tester.getSemantics(
+        find
+            .ancestor(
+              of: find.byType(SidebarPanelToggleIcon),
+              matching: find.byType(Semantics),
+            )
+            .first,
+      );
+      expect(buttonSemantics.flagsCollection.isButton, isTrue);
+      expect(
+        buttonSemantics.flagsCollection.isSelected,
+        expanded ? ui.Tristate.isTrue : ui.Tristate.isFalse,
+      );
+      expect(buttonSemantics.label, 'Toggle panel');
+      expect(tester.takeException(), isNull);
+    }
+
+    expect(painters.toSet(), hasLength(4));
+  });
+
+  testWidgets('workspace sidebar icon preserves its identifying cue', (
+    tester,
+  ) async {
+    var presses = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: AppThemeScope(
+          data: AppTheme.darkTheme,
+          child: Scaffold(
+            body: UiIconButton(
+              key: const ValueKey('workspace-sidebar-toggle'),
+              icon: Icons.folder_open_outlined,
+              iconWidget: const SidebarPanelToggleIcon(
+                side: SidebarPanelSide.left,
+                expanded: true,
+                cue: Icons.workspaces_outlined,
+              ),
+              tooltip: 'Hide Workspace panel',
+              selected: true,
+              onPressed: () => presses++,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final icon = tester.widget<SidebarPanelToggleIcon>(
+      find.descendant(
+        of: find.byKey(const ValueKey('workspace-sidebar-toggle')),
+        matching: find.byType(SidebarPanelToggleIcon),
+      ),
+    );
+    expect(icon.side, SidebarPanelSide.left);
+    expect(icon.expanded, isTrue);
+    expect(icon.cue, Icons.workspaces_outlined);
+    expect(
+      find.descendant(
+        of: find.byType(SidebarPanelToggleIcon),
+        matching: find.byType(CustomPaint),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.workspaces_outlined), findsOneWidget);
+    expect(
+      tester
+          .getSemantics(
+            find
+                .ancestor(
+                  of: find.byType(SidebarPanelToggleIcon),
+                  matching: find.byType(Semantics),
+                )
+                .first,
+          )
+          .flagsCollection
+          .isSelected,
+      ui.Tristate.isTrue,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('workspace-sidebar-toggle')));
+    expect(presses, 1);
+    expect(find.byTooltip('Hide Workspace panel'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('compact icon buttons retain touch targets in grouped rows', (
     tester,
   ) async {

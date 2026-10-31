@@ -201,14 +201,18 @@ class CrdtTextSequence {
     }
 
     final ordered = <CrdtTextAtom>[];
-    void visit(CrdtDot? parent) {
-      for (final child in children[parent?.key] ?? const <CrdtTextAtom>[]) {
-        ordered.add(child);
-        visit(child.id);
+    final pending = <CrdtTextAtom>[];
+    for (final root in (children[null] ?? const <CrdtTextAtom>[]).reversed) {
+      pending.add(root);
+    }
+    while (pending.isNotEmpty) {
+      final atom = pending.removeLast();
+      ordered.add(atom);
+      for (final child
+          in (children[atom.id.key] ?? const <CrdtTextAtom>[]).reversed) {
+        pending.add(child);
       }
     }
-
-    visit(null);
     return ordered;
   }
 }

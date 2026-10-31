@@ -1,0 +1,29 @@
+name: Bug report
+description: Report a reproducible defect in Varian.
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Include only sanitized examples. Never attach production credentials, private user content, or bearer tokens.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed, and what did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest repeatable sequence and identify the app/platform.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Add relevant logs, screenshots, or test output after removing secrets and personal data.
+    validations:
+      required: false

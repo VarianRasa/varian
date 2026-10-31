@@ -72,7 +72,7 @@ class PdfViewerScreen extends StatefulWidget {
 
 class _PdfViewerScreenState extends State<PdfViewerScreen> {
   late final PdfViewerController _pdfController;
-  late final PdfTextSearcher _textSearcher;
+  PdfTextSearcher? _textSearcher;
 
   int _currentPage = 1;
   int _pageCount = 1;
@@ -93,7 +93,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   List<PdfOutlineNode>? _outlineNodes;
   List<PdfPage> _pages = const [];
-  List<PdfTextRanges> _selectedTextRanges = const [];
+  List<PdfPageTextRange> _selectedTextRanges = const [];
   late PdfAnnotationData _annotations;
   int? _activeStrokePage;
   final List<Offset> _activeStrokePoints = [];
@@ -109,14 +109,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
     _annotations = widget.payload.pdfAnnotations;
     _pdfController = PdfViewerController();
     _pdfController.addListener(_onControllerMatrixChanged);
-    _textSearcher = PdfTextSearcher(_pdfController);
     _loadBytes();
   }
 
   @override
   void dispose() {
     _pdfController.removeListener(_onControllerMatrixChanged);
-    _textSearcher.dispose();
+    _textSearcher?.dispose();
     super.dispose();
   }
 
@@ -203,10 +202,13 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
   }
 
   void _toggleSearch() {
+    final searcher = _textSearcher;
+    if (searcher == null) return;
+
     setState(() {
       _isSearchOpen = !_isSearchOpen;
       if (!_isSearchOpen) {
-        _textSearcher.resetTextSearch();
+        searcher.resetTextSearch();
       }
     });
   }
@@ -362,7 +364,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
 
   void _showAddTextCommentDialog() {
     if (_selectedTextRanges.isEmpty) return;
-    final selections = List<PdfTextRanges>.of(_selectedTextRanges);
+    final selections = List<PdfPageTextRange>.of(_selectedTextRanges);
     final controller = TextEditingController();
     showUiDialog<void>(
       context: context,
@@ -721,16 +723,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 ),
 
               // Floating Search Bar
-              if (_isSearchOpen)
+              if (_isSearchOpen && _textSearcher != null)
                 Positioned(
                   top: _isFullscreen ? AppSpacing.md : AppSpacing.sm,
                   left: AppSpacing.page,
                   right: AppSpacing.page,
                   child: PdfSearchBar(
-                    textSearcher: _textSearcher,
+                    textSearcher: _textSearcher!,
                     onClose: () => setState(() {
                       _isSearchOpen = false;
-                      _textSearcher.resetTextSearch();
+                      _textSearcher?.resetTextSearch();
                     }),
                     isDarkTheme: _isDarkTheme,
                   ),
@@ -767,7 +769,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
                 tooltip: 'Search Document (Ctrl + F)',
                 icon: Icons.search,
                 selected: _isSearchOpen,
-                onPressed: _toggleSearch,
+                onPressed: _textSearcher == null ? null : _toggleSearch,
               ),
               UiIconButton(
                 tooltip: 'Presentation Mode (F11)',
@@ -874,6 +876,7 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         value: _PdfHeaderAction.search,
         label: 'Search document',
         icon: Icons.search,
+        enabled: _textSearcher != null,
         selected: _isSearchOpen,
       ),
       const UiMenuAction(
@@ -1277,11 +1280,16 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
       layoutPages: _viewMode == PdfViewMode.singlePage
           ? singlePageLayout
           : null,
-      enableTextSelection: _toolMode == PdfToolMode.select,
-      onTextSelectionChange: (selections) {
-        if (mounted) setState(() => _selectedTextRanges = selections);
-      },
-      pagePaintCallbacks: [_textSearcher.pageTextMatchPaintCallback],
+      textSelectionParams: PdfTextSelectionParams(
+        enabled: _toolMode == PdfToolMode.select,
+        onTextSelectionChange: (selection) async {
+          final ranges = await selection.getSelectedTextRanges();
+          if (mounted) setState(() => _selectedTextRanges = ranges);
+        },
+      ),
+      pagePaintCallbacks: _textSearcher == null
+          ? const []
+          : [_textSearcher!.pageTextMatchPaintCallback],
       pageOverlaysBuilder: (context, pageRect, page) => [
         Positioned.fill(
           key: ValueKey('pdf-page-overlay-${page.pageNumber}'),
@@ -1357,6 +1365,15 @@ class _PdfViewerScreenState extends State<PdfViewerScreen> {
         offset: Offset(0, 10),
       ),
       onViewerReady: (document, controller) async {
+        if (_textSearcher == null) {
+          final searcher = PdfTextSearcher(controller);
+          if (mounted) {
+            setState(() => _textSearcher = searcher);
+          } else {
+            searcher.dispose();
+          }
+        }
+
         try {
           final outline = await document.loadOutline();
           if (mounted) {

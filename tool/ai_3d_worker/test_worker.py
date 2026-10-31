@@ -20,11 +20,12 @@ os.environ.setdefault("PYTHONPATH", str(Path(__file__).resolve().parents[2]))
 os.environ["AI_3D_DEFAULT_PROVIDER"] = "demo"
 os.environ["AI_3D_WORK_DIR"] = _work_dir.name
 
-from . import app as worker_module
-from .app import CreateJobRequest, JobRecord, app
-from .glb_utils import validate_glb_bytes, write_demo_glb
-from .preview import validate_png_bytes
-from .providers import (
+# Import after environment setup because app.py reads configuration at import time.
+from . import app as worker_module  # noqa: E402
+from .app import CreateJobRequest, JobRecord, app  # noqa: E402
+from .glb_utils import validate_glb_bytes, write_demo_glb  # noqa: E402
+from .preview import validate_png_bytes  # noqa: E402
+from .providers import (  # noqa: E402
     ComfyUIProvider,
     DemoProvider,
     GenerationRequest,
@@ -72,21 +73,24 @@ class WorkerTest(unittest.TestCase):
         previous_pipelines = TrellisProvider._pipelines
         TrellisProvider._pipelines = {}
         try:
-            with patch.dict(
-                sys.modules,
-                {
-                    "trellis2": trellis_module,
-                    "trellis2.pipelines": pipelines_module,
-                    "huggingface_hub": huggingface_module,
-                },
-            ), patch.dict(
-                os.environ,
-                {
-                    "TRELLIS2_MODEL": "microsoft/TRELLIS.2-4B",
-                    "TRELLIS2_MODEL_REVISION": "model-pin",
-                    "TRELLIS2_HF_TOKEN_REQUIRED": "false",
-                },
-                clear=False,
+            with (
+                patch.dict(
+                    sys.modules,
+                    {
+                        "trellis2": trellis_module,
+                        "trellis2.pipelines": pipelines_module,
+                        "huggingface_hub": huggingface_module,
+                    },
+                ),
+                patch.dict(
+                    os.environ,
+                    {
+                        "TRELLIS2_MODEL": "microsoft/TRELLIS.2-4B",
+                        "TRELLIS2_MODEL_REVISION": "model-pin",
+                        "TRELLIS2_HF_TOKEN_REQUIRED": "false",
+                    },
+                    clear=False,
+                ),
             ):
                 TrellisProvider._load_trellis2_pipeline()
         finally:
@@ -112,19 +116,22 @@ class WorkerTest(unittest.TestCase):
         previous_pipelines = TrellisProvider._pipelines
         TrellisProvider._pipelines = {}
         try:
-            with patch.dict(
-                sys.modules,
-                {
-                    "trellis2": trellis_module,
-                    "trellis2.pipelines": pipelines_module,
-                },
-            ), patch.dict(
-                os.environ,
-                {
-                    "TRELLIS2_MODEL_REVISION": "",
-                    "TRELLIS2_HF_TOKEN_REQUIRED": "false",
-                },
-                clear=False,
+            with (
+                patch.dict(
+                    sys.modules,
+                    {
+                        "trellis2": trellis_module,
+                        "trellis2.pipelines": pipelines_module,
+                    },
+                ),
+                patch.dict(
+                    os.environ,
+                    {
+                        "TRELLIS2_MODEL_REVISION": "",
+                        "TRELLIS2_HF_TOKEN_REQUIRED": "false",
+                    },
+                    clear=False,
+                ),
             ):
                 TrellisProvider._load_trellis2_pipeline("512")
         finally:
@@ -236,7 +243,9 @@ class WorkerTest(unittest.TestCase):
             self.assertEqual(validate_png_bytes(preview.content), (512, 512))
             denied = await client.get(artifact["url"].replace("token=", "token=invalid"))
             self.assertEqual(denied.status_code, 404)
-            denied_preview = await client.get(artifact["previewUrl"].replace("token=", "token=invalid"))
+            denied_preview = await client.get(
+                artifact["previewUrl"].replace("token=", "token=invalid")
+            )
             self.assertEqual(denied_preview.status_code, 404)
             repeated = await client.post("/v1/3d/jobs/test-worker-job/retry")
             self.assertEqual(repeated.status_code, 200)
@@ -271,7 +280,6 @@ class WorkerTest(unittest.TestCase):
                 self.assertEqual(completed["status"], "completed")
                 self.assertEqual(provider.calls, 2)
 
-
     def test_image_job_requires_an_image_source(self) -> None:
         asyncio.run(self._invalid_image_job())
 
@@ -280,22 +288,110 @@ class WorkerTest(unittest.TestCase):
         async with httpx.AsyncClient(transport=transport, base_url="http://worker") as client:
             response = await client.post(
                 "/v1/3d/jobs",
-                json={"projectId": "local", "capability": "imageTo3D", "prompt": "chair", "provider": "demo"},
+                json={
+                    "projectId": "local",
+                    "capability": "imageTo3D",
+                    "prompt": "chair",
+                    "provider": "demo",
+                },
             )
             self.assertEqual(response.status_code, 400)
+
+    def test_job_telemetry_correlates_requests_without_logging_user_content(self) -> None:
+        asyncio.run(self._job_telemetry_checks())
+
+    async def _job_telemetry_checks(self) -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://worker") as client:
+            with self.assertLogs("varian.ai_3d_worker", level="INFO") as captured:
+                created = await client.post(
+                    "/v1/3d/jobs",
+                    json={
+                        "jobId": "telemetry-worker-job",
+                        "projectId": "local",
+                        "capability": "textTo3D",
+                        "prompt": "prompt-must-not-appear-in-logs",
+                        "provider": "demo",
+                    },
+                    headers={
+                        "Origin": "http://localhost",
+                        "X-Request-ID": "client-controlled-id",
+                    },
+                )
+                self.assertEqual(created.status_code, 202)
+                request_id = created.headers.get("x-request-id", "")
+                self.assertRegex(request_id, r"^[0-9a-f-]{36}$")
+                self.assertNotEqual(request_id, "client-controlled-id")
+                self.assertEqual(
+                    created.headers.get("access-control-expose-headers"), "X-Request-ID"
+                )
+                completed = await _wait_for_terminal(client, "telemetry-worker-job")
+                downloaded = await client.get(completed["artifact"]["url"])
+                self.assertEqual(downloaded.status_code, 200)
+
+        self.assertEqual(completed["status"], "completed")
+        events = [json.loads(record.getMessage()) for record in captured.records]
+        queued = next(event for event in events if event["event"] == "job_queued")
+        processing = next(event for event in events if event["event"] == "job_processing_started")
+        completed_event = next(event for event in events if event["event"] == "job_completed")
+        request = next(
+            event
+            for event in events
+            if event["event"] == "http_request_completed" and event["status_code"] == 202
+        )
+        self.assertEqual(queued["request_id"], request_id)
+        self.assertEqual(processing["request_id"], request_id)
+        self.assertEqual(completed_event["request_id"], request_id)
+        self.assertEqual(request["request_id"], request_id)
+        self.assertEqual(request["route"], "/v1/3d/jobs")
+        log_output = "\\n".join(json.dumps(event) for event in events)
+        artifact_token = completed["artifact"]["url"].split("token=", maxsplit=1)[1]
+        self.assertNotIn("prompt-must-not-appear-in-logs", log_output)
+        self.assertNotIn("telemetry-worker-job", log_output)
+        self.assertNotIn(artifact_token, log_output)
 
     def test_worker_authentication_is_required_when_configured(self) -> None:
         asyncio.run(self._authentication_checks())
 
     async def _authentication_checks(self) -> None:
         transport = httpx.ASGITransport(app=app)
+        create_payload = {
+            "jobId": "unauthorized-job",
+            "projectId": "local",
+            "capability": "textTo3D",
+            "prompt": "a blue chair",
+            "provider": "demo",
+        }
+        protected_routes = (
+            ("GET", "/v1/health", None),
+            ("POST", "/v1/3d/jobs", create_payload),
+            ("GET", "/v1/3d/jobs/unauthorized-job", None),
+            ("POST", "/v1/3d/jobs/unauthorized-job/cancel", None),
+            ("POST", "/v1/3d/jobs/unauthorized-job/retry", None),
+        )
+        unauthorized_headers = (
+            {},
+            {"Authorization": "Bearer wrong"},
+        )
         with patch.object(worker_module, "WORKER_TOKEN", "worker-secret"):
             async with httpx.AsyncClient(transport=transport, base_url="http://worker") as client:
-                missing = await client.get("/v1/health")
-                self.assertEqual(missing.status_code, 401)
-                invalid = await client.get("/v1/health", headers={"Authorization": "Bearer wrong"})
-                self.assertEqual(invalid.status_code, 401)
-                valid = await client.get("/v1/health", headers={"Authorization": "Bearer worker-secret"})
+                for method, path, payload in protected_routes:
+                    for headers in unauthorized_headers:
+                        response = await client.request(
+                            method,
+                            path,
+                            headers=headers,
+                            json=payload,
+                        )
+                        self.assertEqual(
+                            response.status_code,
+                            401,
+                            f"{method} {path} must reject missing or invalid bearer tokens",
+                        )
+
+                valid = await client.get(
+                    "/v1/health", headers={"Authorization": "Bearer worker-secret"}
+                )
                 self.assertEqual(valid.status_code, 200)
 
     def test_request_size_and_job_id_path_traversal_are_rejected(self) -> None:
@@ -323,6 +419,23 @@ class WorkerTest(unittest.TestCase):
             self.assertEqual(oversized.status_code, 413)
 
     def test_source_url_and_image_size_validation_block_ssrf_inputs(self) -> None:
+        if "AI_3D_ALLOW_LOOPBACK_SOURCE_URLS" not in os.environ:
+            self.assertFalse(worker_module.ALLOW_LOOPBACK_SOURCE_URLS)
+
+        loopback_address = [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 54321))]
+        with patch.object(worker_module, "ALLOW_LOOPBACK_SOURCE_URLS", False):
+            with patch.object(worker_module.socket, "getaddrinfo", return_value=loopback_address):
+                for url in (
+                    "http://127.0.0.1:54321/image.png",
+                    "https://127.0.0.1:54321/image.png",
+                ):
+                    with self.subTest(url=url):
+                        with self.assertRaises(ValueError):
+                            worker_module._validate_source_url(url)
+        with patch.object(worker_module, "ALLOW_LOOPBACK_SOURCE_URLS", True):
+            with patch.object(worker_module.socket, "getaddrinfo", return_value=loopback_address):
+                worker_module._validate_source_url("http://127.0.0.1:54321/image.png")
+
         with self.assertRaises(ValueError):
             worker_module._validate_source_url("https://user:password@example.com/image.png")
         with self.assertRaises(ValueError):
@@ -369,7 +482,9 @@ class WorkerTest(unittest.TestCase):
             worker_module._jobs[job_id] = record
             try:
                 transport = httpx.ASGITransport(app=app)
-                async with httpx.AsyncClient(transport=transport, base_url="http://worker") as client:
+                async with httpx.AsyncClient(
+                    transport=transport, base_url="http://worker"
+                ) as client:
                     outside_response = await client.get(
                         f"/v1/3d/artifacts/{job_id}.glb?token=artifact-secret"
                     )
@@ -464,7 +579,11 @@ class WorkerTest(unittest.TestCase):
                                 "outputs": {
                                     "42": {
                                         "files": [
-                                            {"filename": "model.glb", "subfolder": "", "type": "output"}
+                                            {
+                                                "filename": "model.glb",
+                                                "subfolder": "",
+                                                "type": "output",
+                                            }
                                         ]
                                     }
                                 },
@@ -504,17 +623,20 @@ class WorkerTest(unittest.TestCase):
                 seed=7,
             )
             progress_values = []
-            with patch.dict(
-                os.environ,
-                {
-                    "COMFYUI_BASE_URL": "http://127.0.0.1:8188",
-                    "COMFYUI_WORKFLOW_FILE": str(workflow_path),
-                    "COMFYUI_OUTPUT_NODE_ID": "42",
-                    "COMFYUI_POLL_SECONDS": "0.05",
-                    "COMFYUI_TIMEOUT_SECONDS": "60",
-                },
-                clear=False,
-            ), patch("tool.ai_3d_worker.providers.httpx.Client", return_value=fake_client):
+            with (
+                patch.dict(
+                    os.environ,
+                    {
+                        "COMFYUI_BASE_URL": "http://127.0.0.1:8188",
+                        "COMFYUI_WORKFLOW_FILE": str(workflow_path),
+                        "COMFYUI_OUTPUT_NODE_ID": "42",
+                        "COMFYUI_POLL_SECONDS": "0.05",
+                        "COMFYUI_TIMEOUT_SECONDS": "60",
+                    },
+                    clear=False,
+                ),
+                patch("tool.ai_3d_worker.providers.httpx.Client", return_value=fake_client),
+            ):
                 result = ComfyUIProvider().generate(
                     request,
                     progress_values.append,

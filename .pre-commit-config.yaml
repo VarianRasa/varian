@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+
+  - repo: local
+    hooks:
+      - id: dart-format
+        name: Check Dart formatting
+        entry: dart format --output=none --set-exit-if-changed
+        language: system
+        files: \.dart$
+      - id: ruff-check
+        name: Lint Python worker
+        entry: ruff check
+        language: system
+        types: [python]
+        files: ^(tool/ai_3d_worker/|tool/check_lcov_threshold\.py$)
+      - id: ruff-format
+        name: Check Python formatting
+        entry: ruff format --check
+        language: system
+        types: [python]
+        files: ^(tool/ai_3d_worker/|tool/check_lcov_threshold\.py$)

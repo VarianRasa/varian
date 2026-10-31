@@ -488,7 +488,7 @@ class _InlineVideoCardWidgetState extends State<InlineVideoCardWidget> {
                 children: [
                   Video(
                     controller: _videoController!,
-                    controls: NoVideoControls,
+                    controls: (_) => const SizedBox.shrink(),
                   ),
                   Positioned(
                     left: AppSpacing.xs + AppSpacing.xxs,

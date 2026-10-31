@@ -19,6 +19,7 @@ import 'package:varian/domain/models/document_asset.dart';
 import 'package:varian/features/ai/data/image_artifact_store_types.dart';
 import 'package:varian/features/auth/state/auth_provider.dart';
 import 'package:varian/features/canvas/state/autosave_controller.dart';
+import 'package:varian/features/canvas/state/open_document_tabs_provider.dart';
 import 'package:varian/features/home/state/home_provider.dart';
 
 String _encodePart(Object value) =>
@@ -259,7 +260,7 @@ void main() {
   );
 
   test(
-    'deletes a cloud project only through the authenticated owner filter',
+    'requests cloud project deletion through the Notes-aware owner RPC',
     () async {
       final requests = <http.Request>[];
       final client = SupabaseClient(
@@ -267,20 +268,31 @@ void main() {
         'test-publishable-key',
         httpClient: MockClient((request) async {
           requests.add(request);
+          if (request.url.path.endsWith(
+            '/rpc/request_workspace_note_project_delete',
+          )) {
+            return _jsonResponse([
+              {'status': 'pending', 'job_id': 'rehome-job-1'},
+            ], request: request);
+          }
           return _jsonResponse([], request: request);
         }),
       );
       addTearDown(client.dispose);
       await _authenticate(client);
-      await SupabaseSyncService(
+      final result = await SupabaseSyncService(
         client,
       ).deleteOwnedProject('project-1', expectedUserId: 'account-1');
 
-      final deleteRequest = requests.single;
-      expect(deleteRequest.method, 'DELETE');
-      expect(deleteRequest.url.path, '/rest/v1/projects');
-      expect(deleteRequest.url.queryParameters['id'], 'eq.project-1');
-      expect(deleteRequest.url.queryParameters['owner_id'], 'eq.account-1');
+      expect(result.status.name, 'pending');
+      expect(result.jobId, 'rehome-job-1');
+      final deletionRequest = requests.single;
+      expect(
+        deletionRequest.url.path,
+        '/rest/v1/rpc/request_workspace_note_project_delete',
+      );
+      expect(jsonDecode(deletionRequest.body), {'p_project_id': 'project-1'});
+      expect(requests.any((request) => request.method == 'DELETE'), isFalse);
     },
   );
 
@@ -353,6 +365,98 @@ void main() {
         ),
         isFalse,
       );
+    },
+  );
+
+  test(
+    'detaches a completed cloud deletion without deleting local data',
+    () async {
+      final metadata = LocalProjectMetadata(
+        id: 'project-1',
+        name: 'Keep this local copy',
+        createdAt: DateTime.utc(2026, 10, 1),
+        updatedAt: DateTime.utc(2026, 10, 3),
+        isPinned: true,
+        status: ProjectStatus.archived,
+        cloudOwnerId: 'account-1',
+        cloudUpdatedAt: DateTime.utc(2026, 10, 3),
+        cloudMetadataSyncPending: true,
+        cloudAdoptionPendingAccountId: 'account-1',
+      );
+      SharedPreferences.setMockInitialValues({
+        'ccs_local_projects_list': jsonEncode([metadata.toJson()]),
+      });
+      final client = SupabaseClient(
+        'https://example.supabase.co',
+        'test-publishable-key',
+        httpClient: MockClient(
+          (request) async => _jsonResponse([], request: request),
+        ),
+      );
+      addTearDown(client.dispose);
+      await _authenticate(client);
+      final storage = LocalStorageService();
+      final container = ProviderContainer(
+        overrides: [
+          localStorageServiceProvider.overrideWithValue(storage),
+          openDocumentTabsProvider.overrideWith(
+            (ref) => OpenDocumentTabsNotifier(storage),
+          ),
+          supabaseClientProvider.overrideWithValue(client),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await container
+          .read(homeProjectsProvider.notifier)
+          .detachDeletedCloudProject(
+            projectId: 'project-1',
+            expectedAccountId: 'account-1',
+          );
+
+      final localCopy = (await storage.getProjects()).single;
+      expect(localCopy.name, 'Keep this local copy');
+      expect(localCopy.isPinned, isTrue);
+      expect(localCopy.status, ProjectStatus.archived);
+      expect(localCopy.cloudOwnerId, isNull);
+      expect(localCopy.cloudUpdatedAt, isNull);
+      expect(localCopy.cloudMetadataSyncPending, isFalse);
+      expect(localCopy.cloudAdoptionPendingAccountId, isNull);
+      expect(localCopy.cloudDeletionDetached, isTrue);
+      expect(
+        LocalProjectMetadata.fromJson(localCopy.toJson()).cloudDeletionDetached,
+        isTrue,
+      );
+      final legacyJson = localCopy.toJson()..remove('cloudDeletionDetached');
+      expect(
+        LocalProjectMetadata.fromJson(legacyJson).cloudDeletionDetached,
+        isFalse,
+      );
+      final visibleCopy = container.read(homeProjectsProvider).value!.single;
+      expect(visibleCopy.id, localCopy.id);
+      expect(visibleCopy.cloudOwnerId, isNull);
+      expect(
+        await container.read(
+          homeProjectAdoptionEligibilityProvider('project-1').future,
+        ),
+        isFalse,
+      );
+      await expectLater(
+        container
+            .read(homeProjectsProvider.notifier)
+            .adoptProjectToCloud('project-1', expectedAccountId: 'account-1'),
+        throwsA(isA<SyncException>()),
+      );
+      expect(
+        await storage.markCloudAdoptionPending(
+          projectId: 'project-1',
+          expectedAccountId: 'account-1',
+          shouldWrite: () => true,
+        ),
+        isFalse,
+      );
+      final duplicate = await storage.duplicateProject('project-1');
+      expect(duplicate.cloudDeletionDetached, isFalse);
     },
   );
 

@@ -86,16 +86,20 @@ def _configure_render(output_path: Path) -> None:
 
 def _bounds(objects: list[bpy.types.Object]) -> tuple[Vector, Vector, Vector]:
     corners = [obj.matrix_world @ Vector(corner) for obj in objects for corner in obj.bound_box]
-    minimum = Vector((
-        min(corner.x for corner in corners),
-        min(corner.y for corner in corners),
-        min(corner.z for corner in corners),
-    ))
-    maximum = Vector((
-        max(corner.x for corner in corners),
-        max(corner.y for corner in corners),
-        max(corner.z for corner in corners),
-    ))
+    minimum = Vector(
+        (
+            min(corner.x for corner in corners),
+            min(corner.y for corner in corners),
+            min(corner.z for corner in corners),
+        )
+    )
+    maximum = Vector(
+        (
+            max(corner.x for corner in corners),
+            max(corner.y for corner in corners),
+            max(corner.z for corner in corners),
+        )
+    )
     return (minimum + maximum) * 0.5, minimum, maximum
 
 
@@ -115,7 +119,9 @@ def _create_camera(target: Vector, largest: float) -> None:
 
 
 def _create_floor(target: Vector, minimum_z: float, largest: float) -> None:
-    bpy.ops.mesh.primitive_plane_add(size=largest * 8, location=(target.x, target.y, minimum_z - largest * 0.015))
+    bpy.ops.mesh.primitive_plane_add(
+        size=largest * 8, location=(target.x, target.y, minimum_z - largest * 0.015)
+    )
     floor = bpy.context.object
     floor.name = "VarianPreviewFloor"
     material = bpy.data.materials.new("VarianPreviewFloorMaterial")
@@ -129,9 +135,27 @@ def _create_floor(target: Vector, minimum_z: float, largest: float) -> None:
 
 def _create_lights(target: Vector, largest: float) -> None:
     lights = (
-        ("VarianPreviewKey", target + Vector((largest * 2.0, -largest * 2.0, largest * 2.8)), 950, 1.8, (0.72, 0.86, 1.0)),
-        ("VarianPreviewFill", target + Vector((-largest * 2.0, -largest * 0.8, largest * 1.4)), 600, 2.2, (0.38, 0.58, 1.0)),
-        ("VarianPreviewRim", target + Vector((largest * 0.6, largest * 2.0, largest * 2.2)), 850, 1.5, (1.0, 0.52, 0.3)),
+        (
+            "VarianPreviewKey",
+            target + Vector((largest * 2.0, -largest * 2.0, largest * 2.8)),
+            950,
+            1.8,
+            (0.72, 0.86, 1.0),
+        ),
+        (
+            "VarianPreviewFill",
+            target + Vector((-largest * 2.0, -largest * 0.8, largest * 1.4)),
+            600,
+            2.2,
+            (0.38, 0.58, 1.0),
+        ),
+        (
+            "VarianPreviewRim",
+            target + Vector((largest * 0.6, largest * 2.0, largest * 2.2)),
+            850,
+            1.5,
+            (1.0, 0.52, 0.3),
+        ),
     )
     for name, location, energy, size, color in lights:
         light_data = bpy.data.lights.new(name, type="AREA")

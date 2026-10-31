@@ -67,14 +67,12 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _normalize_geometry(objects: list[bpy.types.Object]) -> None:
-    corners = []
+    corners: list[Vector] = []
     for obj in objects:
         corners.extend(obj.matrix_world @ Vector(corner) for corner in obj.bound_box)
     minimum = [min(corner[index] for corner in corners) for index in range(3)]
     maximum = [max(corner[index] for corner in corners) for index in range(3)]
-    center = Vector((
-        (minimum[index] + maximum[index]) / 2 for index in range(3)
-    ))
+    center = Vector(((minimum[index] + maximum[index]) / 2 for index in range(3)))
     largest = max(maximum[index] - minimum[index] for index in range(3))
     scale = 2.0 / largest if largest > 0 else 1.0
     for obj in objects:

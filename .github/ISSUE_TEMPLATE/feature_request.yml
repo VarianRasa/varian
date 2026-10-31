@@ -1,0 +1,26 @@
+name: Feature request
+description: Propose a user-facing improvement.
+title: "feature: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user need or workflow is missing?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the expected behavior and important edge cases.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Scope and impact
+      description: Identify affected app areas and any data, privacy, or compatibility concerns.
+    validations:
+      required: false
