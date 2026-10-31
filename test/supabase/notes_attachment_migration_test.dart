@@ -114,22 +114,27 @@ void main() {
         .split('\$function\$;')
         .first;
     expect(guard, contains('new.project_id is distinct from old.project_id'));
-    expect(guard, contains('new.owner_user_id is distinct from old.owner_user_id'));
+    expect(
+      guard,
+      contains('new.owner_user_id is distinct from old.owner_user_id'),
+    );
     expect(guard, contains('a.project_id is distinct from new.project_id'));
-    expect(guard, contains('a.owner_user_id is distinct from new.owner_user_id'));
+    expect(
+      guard,
+      contains('a.owner_user_id is distinct from new.owner_user_id'),
+    );
     expect(guard, contains('workspace_note_attachment_rehome_required'));
   });
 
   test('returns pending and retryable status for cloud project deletion', () {
     expect(
       migration,
-      contains('create or replace function public.request_workspace_note_project_delete'),
+      contains(
+        'create or replace function public.request_workspace_note_project_delete',
+      ),
     );
     expect(migration, contains('returns table (status text, job_id uuid)'));
-    expect(
-      migration,
-      contains('retry_workspace_note_attachment_rehome(uuid)'),
-    );
+    expect(migration, contains('retry_workspace_note_attachment_rehome(uuid)'));
     expect(migration, contains("job_kind = 'project_delete'"));
     expect(migration, contains("status = 'complete'"));
   });
@@ -137,7 +142,10 @@ void main() {
   test('schedules the worker through Vault-backed pg_cron and pg_net', () {
     expect(migration, contains('create extension if not exists pg_cron'));
     expect(migration, contains('create extension if not exists pg_net'));
-    expect(migration, contains('create extension if not exists supabase_vault'));
+    expect(
+      migration,
+      contains('create extension if not exists supabase_vault'),
+    );
     expect(migration, contains('cron.schedule('));
     expect(migration, contains("'notes-attachment-rehome'"));
     expect(migration, contains('vault.decrypted_secrets'));
