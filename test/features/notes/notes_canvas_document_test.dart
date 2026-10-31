@@ -8,6 +8,21 @@ void main() {
   const boardId = '20000000-0000-4000-8000-000000000001';
   const cardId = '20000000-0000-4000-8000-000000000002';
 
+  test('rejects invalid version vector counters in snapshots', () {
+    final document = NotesCanvasDocument.fromState(
+      boardId,
+      NotesCanvasBoardState.empty(),
+    );
+    for (final value in [-1, 'invalid', 1.5]) {
+      final snapshot = document.snapshotState();
+      snapshot['version_vector'] = {'replica': value};
+      expect(
+        () => NotesCanvasDocument.fromSnapshot(snapshot),
+        throwsFormatException,
+      );
+    }
+  });
+
   NotesCanvasBoardState initialState({String markdown = 'text'}) =>
       NotesCanvasBoardState(
         cards: [

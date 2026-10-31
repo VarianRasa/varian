@@ -39,6 +39,6 @@ final notesCanvasSyncRepositoryProvider = Provider<NotesCanvasSyncRepository?>((
       return user == null || user.isAnonymous ? null : user.id;
     },
   );
-  ref.listen(authUserProvider, (_, __) => sync.accountChanged());
+  ref.listen(authUserProvider, (_, _) => sync.accountChanged());
   return sync;
 });

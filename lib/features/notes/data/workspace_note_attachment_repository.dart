@@ -9,12 +9,10 @@ import 'notes_local_store.dart';
 
 class WorkspaceNoteAttachmentRepository {
   WorkspaceNoteAttachmentRepository({
-    required SupabaseClient client,
-    required NotesLocalStore localStore,
-    required Future<Uint8List?> Function(String accountId) keyForAccount,
-  }) : _client = client,
-       _localStore = localStore,
-       _keyForAccount = keyForAccount;
+    required this._client,
+    required this._localStore,
+    required this._keyForAccount,
+  });
 
   static const bucket = 'workspace-note-assets';
 
@@ -31,8 +29,9 @@ class WorkspaceNoteAttachmentRepository {
   }) async {
     _requireCurrentAccount(accountId);
     final type = detectWorkspaceNoteAttachmentType(bytes);
-    if (type == null)
+    if (type == null) {
       throw const FormatException('Unsupported Notes attachment.');
+    }
     final fileName = _validatedFileName(originalName);
 
     final note = await _client

@@ -348,8 +348,9 @@ Map<String, dynamic> _asStringMap(Object? value) {
 
 String _requiredString(Map<String, dynamic> json, String key) {
   final value = json[key];
-  if (value is! String)
+  if (value is! String) {
     throw FormatException('Canvas field "$key" is invalid.');
+  }
   return value;
 }
 

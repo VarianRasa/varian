@@ -18,7 +18,7 @@ class _FakeWorkspaceNotesNotifier extends WorkspaceNotesNotifier {
 }
 
 class _FakeTemplateRepository extends WorkspaceNoteRepository {
-  _FakeTemplateRepository(SupabaseClient client) : super(client);
+  _FakeTemplateRepository(super.client);
 
   final templates = <WorkspaceNoteTemplate>[];
   final requestedScopes = <String?>[];

@@ -75,6 +75,7 @@ class NotesCanvasRepository implements NotesCanvasSyncTransport {
         .toList(growable: false);
   }
 
+  @override
   Future<NotesCanvasBoard> getBoard({
     required String boardId,
     required String expectedAccountId,
@@ -126,6 +127,7 @@ class NotesCanvasRepository implements NotesCanvasSyncTransport {
     return NotesCanvasBoard.fromJson(_recordMap(raw));
   }
 
+  @override
   Future<int> appendOperation({
     required String boardId,
     required NotesCanvasOperation operation,
@@ -162,6 +164,7 @@ class NotesCanvasRepository implements NotesCanvasSyncTransport {
     return sequence;
   }
 
+  @override
   Future<List<NotesCanvasOperationRecord>> listOperations({
     required String boardId,
     required int afterSequence,
@@ -198,6 +201,7 @@ class NotesCanvasRepository implements NotesCanvasSyncTransport {
     return records;
   }
 
+  @override
   Future<NotesCanvasBoard> materializeSnapshot({
     required String boardId,
     required int expectedRevision,
